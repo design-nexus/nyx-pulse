@@ -8,6 +8,12 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     rc::Rc,
 };
+/// The Python that runs the WebKit and passkey helpers. Distributions without
+/// /usr/bin/python3 set PULSE_PYTHON at build time.
+pub const PYTHON: &str = match option_env!("PULSE_PYTHON") {
+    Some(path) => path,
+    None => "/usr/bin/python3",
+};
 struct Browser {
     child: RefCell<Child>,
     input: RefCell<ChildStdin>,
@@ -63,7 +69,7 @@ fn spawn(
     let path = nyx_core::paths::cache_dir().join("webview-helper.py");
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&path, include_str!("../helpers/webview.py")).map_err(|e| e.to_string())?;
-    let mut child = Command::new("/usr/bin/python3")
+    let mut child = Command::new(PYTHON)
         .arg(&path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -285,7 +285,7 @@ fn helper(create: bool, device: String, pin: String, parameters: Value) -> Resul
     let script = nyx_core::paths::cache_dir().join("passkey-helper.py");
     std::fs::create_dir_all(script.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&script, include_str!("../helpers/passkey.py")).map_err(|e| e.to_string())?;
-    let mut child = std::process::Command::new("/usr/bin/python3")
+    let mut child = std::process::Command::new(crate::webapps::PYTHON)
         .arg(script)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -356,7 +356,7 @@ fn passkey_operation(create: bool) {
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             std::fs::write(&path, include_str!("../helpers/passkey.py")).map_err(|e| e.to_string())?;
             let output =
-                std::process::Command::new("/usr/bin/python3").arg(path).arg("--devices").output().map_err(|e| e.to_string())?;
+                std::process::Command::new(crate::webapps::PYTHON).arg(path).arg("--devices").output().map_err(|e| e.to_string())?;
             let data: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
             data["result"]
                 .as_array()
