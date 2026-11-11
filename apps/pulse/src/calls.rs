@@ -376,6 +376,8 @@ pub fn share(on: bool) {
 pub fn devices(button: &gtk::Button) {
     let Some(parent) = button.root().and_downcast::<gtk::Window>() else { return };
     let d = gtk::Window::builder().title("Call devices").transient_for(&parent).modal(true).default_width(440).build();
+    // Pulse's stylesheet is scoped to its window class.
+    d.add_css_class("pulse-window");
     let body = nyx_ui::widgets::vbox(12);
     let data = match Engine::devices() {
         Ok(d) => d,

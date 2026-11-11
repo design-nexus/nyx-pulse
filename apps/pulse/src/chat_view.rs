@@ -1322,6 +1322,7 @@ impl ChatView {
     pub fn attach(self: &Rc<Self>, path: std::path::PathBuf) {
         let Some(win) = self.root.root().and_downcast::<gtk::Window>() else { return };
         let d = gtk::Window::builder().title("Send attachment").transient_for(&win).modal(true).default_width(420).build();
+        d.add_css_class("pulse-window");
         let box_ = w::vbox(12);
         box_.set_margin_start(16);
         box_.set_margin_end(16);
