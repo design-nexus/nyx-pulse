@@ -583,7 +583,27 @@ impl ChatList {
             self.chats_box.set_visible(normal_count > 0);
             self.empty_note.set_visible(pinned_count == 0 && normal_count == 0);
         }
+        // The first group shown in the app's accent, Chats after Pinned from the theme's [sections.pulse].
+        let chats = if self.pinned_group.is_visible() { "chats" } else { nyx_ui::sidebar::ACCENT_SECTION };
+        set_group_section(&self.pinned_group, nyx_ui::sidebar::ACCENT_SECTION);
+        set_group_section(&self.chats_group, chats);
     }
+}
+
+/// Colour a group's heading as `section`, in place of the one it had.
+fn set_group_section(group: &gtk::Box, section: &str) {
+    let class = format!("section-{section}");
+    if group.has_css_class(&class) {
+        return;
+    }
+    for w in std::iter::once(group.clone().upcast::<gtk::Widget>()).chain(group.first_child()) {
+        for old in w.css_classes() {
+            if old.starts_with("section-") {
+                w.remove_css_class(&old);
+            }
+        }
+    }
+    nyx_ui::sidebar::set_section(group, section);
 }
 
 pub fn nav_group(title: &str, first: bool, add: Option<(&str, Box<dyn Fn()>)>) -> gtk::Box {
