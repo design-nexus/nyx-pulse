@@ -439,13 +439,6 @@ fn build_window(app: &gtk::Application) {
     window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     window.set_icon_name(Some("io.github.design_nexus.nyx.Pulse"));
 
-    let overlay = gtk::Overlay::new();
-    let frame = w::vbox(0);
-    frame.add_css_class("window-frame");
-
-    let body = w::hbox(0);
-    body.set_vexpand(true);
-
     // 1. Navigation Sidebar (.settings-navigation, 250px expanded / 52px compact)
     let nav = gtk::Box::new(gtk::Orientation::Vertical, 0);
     nav.add_css_class("settings-navigation");
@@ -463,7 +456,6 @@ fn build_window(app: &gtk::Application) {
         .child(&chat_list.root)
         .build();
     nav.append(&nav_scroll);
-    body.append(&nav);
 
     // 2. Main Content Area (Active Conversation View OR Authentication View)
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -490,7 +482,20 @@ fn build_window(app: &gtk::Application) {
     main_box.append(&chat_view.root);
 
     let detail_panel = DetailPanel::new();
+    // The line between the conversation and the detail panel, while the panel shows
+    // beside it (a narrow window lays the panel over the conversation instead).
+    let pane_line = nyx_ui::frame::pane_line(gtk::Orientation::Vertical);
+    pane_line.set_visible(false);
+    main_box.append(&pane_line);
     main_box.append(&detail_panel.root);
+    let follow = {
+        let row = main_box.clone();
+        move |panel: &gtk::Box| {
+            pane_line.set_visible(panel.is_visible() && panel.parent().as_ref() == Some(row.upcast_ref()));
+        }
+    };
+    detail_panel.root.connect_visible_notify(follow.clone());
+    detail_panel.root.connect_parent_notify(follow);
 
     let conversation_overlay = gtk::Overlay::new();
     conversation_overlay.set_child(Some(&main_box));
@@ -500,7 +505,6 @@ fn build_window(app: &gtk::Application) {
     // Default to main conversation view (or auth view if login required)
     content_stack.set_visible_child_name("main");
     content.append(&content_stack);
-    body.append(&content);
 
     // The header: the app and the sidebar toggle; the chat search in the middle; the
     // connection and Settings at the end.
@@ -515,13 +519,12 @@ fn build_window(app: &gtk::Application) {
     status_readout.set_max_width_chars(40);
     status_readout.set_margin_end(6);
     header.end.append(&status_readout);
+    let frame = nyx_ui::frame::AppFrame::new(&header.root);
+    frame.set_sidebar(&nav);
+    frame.set_page(&content);
+    let overlay = frame.install(&window);
     let (ov, win) = (overlay.clone(), window.clone());
     header.end.append(&chrome::settings_button(move || settings_dialog::open(&ov, &win)));
-    frame.append(&header.root);
-    frame.append(&body);
-
-    overlay.set_child(Some(&frame));
-    window.set_child(Some(&overlay));
 
     // Calling UI overlay (cockpit & incoming notification banner)
     let calling_ui = CallingUi::new();
