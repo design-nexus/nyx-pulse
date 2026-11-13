@@ -6,6 +6,7 @@ use crate::chat_list::ChatList;
 use crate::chat_view::ChatView;
 use crate::detail_panel::DetailPanel;
 use crate::media_viewer::MediaViewer;
+use crate::places::Places;
 use crate::service::{ServiceEvent, TelegramService};
 use crate::{prefs, settings_dialog, theme};
 use gtk::gdk;
@@ -24,8 +25,11 @@ thread_local! {
     static REMOVED_CHATS: RefCell<std::collections::HashSet<i64>> = RefCell::new(Default::default());
     static LOGGING_OUT:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};
     static PENDING_CHAT:RefCell<Option<i64>>=const{RefCell::new(None)};
-    static STATUS: RefCell<Option<gtk::Label>> = const { RefCell::new(None) };
     static EVENT_TX: RefCell<Option<async_channel::Sender<ServiceEvent>>> = const { RefCell::new(None) };
+    static PLACES: RefCell<Option<Rc<Places>>> = const { RefCell::new(None) };
+    static NEW_BUTTON: RefCell<Option<gtk::Button>> = const { RefCell::new(None) };
+    static SEARCH_HINT: RefCell<Option<gtk::Label>> = const { RefCell::new(None) };
+    static MY_ID: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
     static WINDOW: RefCell<Option<gtk::ApplicationWindow>> = const { RefCell::new(None) };
     static OVERLAY: RefCell<Option<gtk::Overlay>> = const { RefCell::new(None) };
     static CONVERSATION_LAYOUT: RefCell<Option<(gtk::Box, gtk::Overlay)>> = const { RefCell::new(None) };
@@ -138,9 +142,62 @@ pub fn with_service(f: impl FnOnce(&TelegramService)) {
     }
 }
 pub fn show_status(text: &str) {
-    STATUS.with(|s| {
-        if let Some(label) = s.borrow().as_ref() {
-            label.set_text(text);
+    if let Some(overlay) = OVERLAY.with(|o| o.borrow().clone()) {
+        nyx_ui::toast::show(&overlay, text);
+    }
+}
+/// Your own user ID, once Telegram has said who you are.
+pub fn my_id() -> Option<i64> {
+    MY_ID.with(|m| m.get())
+}
+/// Opens the chat you keep for yourself.
+pub fn open_saved_messages() {
+    let Some(s) = service() else { return };
+    let session = s.generation.clone();
+    glib::spawn_future_local(async move {
+        let me = match my_id() {
+            Some(id) => id,
+            None => match s.request("getMe", serde_json::json!({})).recv().await {
+                Ok(Ok(me)) => me["id"].as_i64().unwrap_or(0),
+                _ => return,
+            },
+        };
+        let Ok(Ok(chat)) = s.request("createPrivateChat", serde_json::json!({"user_id":me,"force":false})).recv().await
+        else {
+            return;
+        };
+        if service_is_current(&session)
+            && let Some(id) = chat["id"].as_i64()
+        {
+            open_chat(id);
+        }
+    });
+}
+fn load_me() {
+    let Some(s) = service() else { return };
+    let session = s.generation.clone();
+    let rx = s.request("getMe", serde_json::json!({}));
+    glib::spawn_future_local(async move {
+        let Ok(Ok(me)) = rx.recv().await else { return };
+        if !service_is_current(&session) {
+            return;
+        }
+        MY_ID.with(|m| m.set(me["id"].as_i64()));
+        PLACES.with(|p| {
+            if let Some(p) = p.borrow().as_ref() {
+                p.set_account(Some(&me));
+            }
+        });
+        if let Some(list) = CHAT_LIST.with(|l| l.borrow().clone()) {
+            let chats = list.get_all_chats();
+            list.update_chats(&chats);
+        }
+    });
+}
+fn set_connection(text: &str, connected: bool) {
+    PLACES.with(|p| {
+        if let Some(p) = p.borrow().as_ref() {
+            p.set_connection(text, connected);
         }
     });
 }
@@ -408,9 +465,17 @@ pub fn switch_account(id: String) {
         }
     });
     prefs::update(|p| p.active_account_id = id.clone());
+    MY_ID.with(|m| m.set(None));
     CHAT_LIST.with(|c| {
         if let Some(c) = c.borrow().as_ref() {
             c.reset();
+        }
+    });
+    PLACES.with(|p| {
+        if let Some(p) = p.borrow().as_ref() {
+            p.reset();
+            p.set_account(None);
+            p.set_connection("Connecting…", false);
         }
     });
     CHAT_VIEW.with(|c| {
@@ -439,25 +504,20 @@ fn build_window(app: &gtk::Application) {
     window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     window.set_icon_name(Some("io.github.design_nexus.nyx.Pulse"));
 
-    // 1. Navigation Sidebar (.settings-navigation, 250px expanded / 52px compact)
-    let nav = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    nav.add_css_class("settings-navigation");
-    nav.set_hexpand(false);
-
+    // The sidebar holds places only; the chats of the chosen place list in the page.
+    let places = Places::new();
+    let nav = places.root.clone();
     let search = search_entry();
-
-    // The chat list is inside the sidebar scroller
     let chat_list = ChatList::new(&search);
-    let nav_scroll = gtk::ScrolledWindow::builder()
-        .hexpand(false)
-        .vexpand(true)
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vscrollbar_policy(gtk::PolicyType::External)
-        .child(&chat_list.root)
-        .build();
-    nav.append(&nav_scroll);
+    let cl = chat_list.clone();
+    places.connect_place(move |place| cl.set_place(place));
+    let (p, cl) = (Rc::downgrade(&places), Rc::downgrade(&chat_list));
+    chat_list.connect_changed(move || {
+        if let (Some(p), Some(cl)) = (p.upgrade(), cl.upgrade()) {
+            p.refresh_counts(&cl.get_all_chats());
+        }
+    });
 
-    // 2. Main Content Area (Active Conversation View OR Authentication View)
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     content.add_css_class("settings-content");
     content.set_hexpand(true);
@@ -500,25 +560,50 @@ fn build_window(app: &gtk::Application) {
     let conversation_overlay = gtk::Overlay::new();
     conversation_overlay.set_child(Some(&main_box));
     CONVERSATION_LAYOUT.with(|layout| *layout.borrow_mut() = Some((main_box, conversation_overlay.clone())));
-    content_stack.add_named(&conversation_overlay, Some("main"));
+    let panes = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    panes.append(&chat_list.root);
+    panes.append(&nyx_ui::frame::pane_line(gtk::Orientation::Vertical));
+    panes.append(&conversation_overlay);
+    content_stack.add_named(&panes, Some("main"));
 
-    // Default to main conversation view (or auth view if login required)
     content_stack.set_visible_child_name("main");
     content.append(&content_stack);
+    // Signed out, the sign-in page has the window to itself.
+    let n = nav.clone();
+    content_stack.connect_visible_child_name_notify(move |s| n.set_visible(s.visible_child_name().as_deref() != Some("auth")));
 
-    // The header: the app and the sidebar toggle; the chat search in the middle; the
-    // connection and Settings at the end.
+    // The header: the app and the sidebar toggle; one search for chats and messages
+    // in the middle; New and Settings at the end.
     let header = chrome::app_header(&window, "mail-send-symbolic", "Pulse");
     let collapse = w::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
     collapse.connect_clicked(|_| toggle_sidebar());
     header.start.append(&collapse);
-    header.center.append(&search);
+    let search_box = gtk::Overlay::new();
+    search_box.set_child(Some(&search));
+    let hint = w::label("Ctrl F", "key-hint");
+    hint.add_css_class("search-hint");
+    hint.set_halign(gtk::Align::End);
+    hint.set_valign(gtk::Align::Center);
+    hint.set_margin_end(10);
+    hint.set_can_target(false);
+    search_box.add_overlay(&hint);
+    let h = hint.clone();
+    search.connect_changed(move |s| h.set_visible(s.text().is_empty() && !NARROW.with(|n| n.get())));
+    SEARCH_HINT.with(|s| *s.borrow_mut() = Some(hint));
+    header.center.append(&search_box);
     header.end.set_spacing(4);
-    let status_readout = w::label("Connecting…", "header-status");
-    status_readout.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    status_readout.set_max_width_chars(40);
-    status_readout.set_margin_end(6);
-    header.end.append(&status_readout);
+    let new_button = gtk::Button::new();
+    new_button.add_css_class("new-button");
+    let face = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    face.append(&gtk::Image::from_icon_name("document-edit-symbolic"));
+    face.append(&gtk::Label::new(Some("New")));
+    face.append(&w::label("Ctrl N", "key-hint"));
+    new_button.set_child(Some(&face));
+    new_button.set_valign(gtk::Align::Center);
+    new_button.set_tooltip_text(Some("New message, group, channel or secret chat (Ctrl+N)"));
+    new_button.update_property(&[gtk::accessible::Property::Label("New")]);
+    new_button.connect_clicked(new_menu);
+    header.end.append(&new_button);
     let frame = nyx_ui::frame::AppFrame::new(&header.root);
     frame.set_sidebar(&nav);
     frame.set_page(&content);
@@ -548,6 +633,8 @@ fn build_window(app: &gtk::Application) {
     MEDIA_VIEWER.with(|m| *m.borrow_mut() = Some(media_viewer.clone()));
     WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
     OVERLAY.with(|o| *o.borrow_mut() = Some(overlay.clone()));
+    PLACES.with(|p| *p.borrow_mut() = Some(places.clone()));
+    NEW_BUTTON.with(|b| *b.borrow_mut() = Some(new_button.clone()));
 
 
     // Connect conversation selection to view and detail panel
@@ -569,7 +656,6 @@ fn build_window(app: &gtk::Application) {
         }
         cv.set_chat(&chat);
         dp.set_chat(&chat);
-
         // Fetch real chat history from background service
         if let Some(s) = SERVICE.with(|srv| srv.borrow().clone()) {
             cv.load_history(0);
@@ -586,6 +672,12 @@ fn build_window(app: &gtk::Application) {
     calling_ui.connect_hangup(|id, duration, video| with_service(|s| s.discard_call(id, duration, video)));
     let dp = detail_panel.clone();
     chat_view.connect_toggle_details(move || dp.toggle_visible());
+    let cv = chat_view.clone();
+    let win = window.clone();
+    detail_panel.root.connect_visible_notify(move |panel| {
+        cv.set_info_open(panel.is_visible());
+        relayout(&win);
+    });
     let mv = media_viewer.clone();
     let weak = Rc::downgrade(&chat_view);
     chat_view.connect_open_media(move |message| {
@@ -601,12 +693,11 @@ fn build_window(app: &gtk::Application) {
     // Start background Telegram service and async event bridge
     let (event_tx, event_rx) = async_channel::unbounded::<ServiceEvent>();
     EVENT_TX.with(|t| *t.borrow_mut() = Some(event_tx.clone()));
-    STATUS.with(|t| *t.borrow_mut() = Some(status_readout.clone()));
     let service = match TelegramService::start(event_tx) {
         Ok(s) => Some(s),
         Err(e) => {
             tracing::warn!("TDLib background service initialization notice: {:?}", e);
-            status_readout.set_text(&format!("Telegram unavailable: {e}"));
+            set_connection(&format!("Telegram unavailable: {e}"), false);
             None
         }
     };
@@ -621,15 +712,6 @@ fn build_window(app: &gtk::Application) {
     chat_view.connect_typing(|chat| with_service(|s| {
         s.request("sendChatAction",serde_json::json!({"chat_id":chat,"topic_id":composer_topic(chat),"action":{"@type":"chatActionTyping"}}));
     }));
-    let chat_limit = Rc::new(std::cell::Cell::new(50));
-    let limit = chat_limit.clone();
-    nav_scroll.connect_edge_reached(move |_, edge| {
-        if edge == gtk::PositionType::Bottom {
-            let n = (limit.get() + 50).min(10000);
-            limit.set(n);
-            with_service(|s| s.load_chats(n));
-        }
-    });
     let cv_read = chat_view.clone();
     let weak = window.downgrade();
     glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
@@ -656,7 +738,6 @@ fn build_window(app: &gtk::Application) {
     // Process background events on the GTK main thread
     let av = auth_view.clone();
     let stack = content_stack.clone();
-    let readout = status_readout.clone();
     let cv_events = chat_view.clone();
     let cl_events = chat_list.clone();
     let calling_ui_events = calling_ui.clone();
@@ -737,7 +818,7 @@ fn build_window(app: &gtk::Application) {
                         AuthState::Ready => {
                             sync_pending_drafts();
                             stack.set_visible_child_name("main");
-                            readout.set_text("Connected to Telegram");
+                            load_me();
                         }
                         AuthState::LoggingOut
                         | AuthState::Closed
@@ -746,7 +827,7 @@ fn build_window(app: &gtk::Application) {
                         | AuthState::WaitPassword { .. }
                         | AuthState::WaitOtherDeviceConfirmation { .. } => {
                             stack.set_visible_child_name("auth");
-                            readout.set_text("Awaiting authentication");
+                            set_connection("Signed out", false);
                         }
                         _ => {}
                     }
@@ -880,12 +961,22 @@ fn build_window(app: &gtk::Application) {
                         if v["state"]["@type"] == "connectionStateReady" {
                             sync_pending_drafts();
                         }
-                        readout.set_text(match v["state"]["@type"].as_str() {
-                            Some("connectionStateReady") => "Connected to Telegram",
-                            Some("connectionStateConnecting") => "Connecting…",
-                            Some("connectionStateUpdating") => "Syncing…",
-                            _ => "Waiting for network…",
-                        });
+                        let state = v["state"]["@type"].as_str();
+                        set_connection(
+                            match state {
+                                Some("connectionStateReady") => "Connected",
+                                Some("connectionStateConnecting") | Some("connectionStateConnectingToProxy") => "Connecting…",
+                                Some("connectionStateUpdating") => "Syncing…",
+                                _ => "Waiting for network…",
+                            },
+                            state == Some("connectionStateReady"),
+                        );
+                    }
+                    if v["@type"] == "updateChatOnlineMemberCount" {
+                        cv_events.set_online_count(v["chat_id"].as_i64().unwrap_or(0), v["online_member_count"].as_i64().unwrap_or(0));
+                    }
+                    if v["@type"] == "updateMessageIsPinned" && v["chat_id"].as_i64() == *cv_events.current_chat_id.borrow() {
+                        cv_events.refresh_pinned();
                     }
                     crate::calls::update(&v);
                 }
@@ -902,10 +993,10 @@ fn build_window(app: &gtk::Application) {
                 ServiceEvent::AuthError(e) => {
                     LOGGING_OUT.with(|v| v.set(false));
                     av.set_error(&e);
-                    readout.set_text(&e);
+                    show_status(&e);
                 }
                 ServiceEvent::Error(e) => {
-                    readout.set_text(&e);
+                    show_status(&e);
                     cv_events.set_error(&e);
                 }
                 _ => {}
@@ -940,27 +1031,52 @@ fn build_window(app: &gtk::Application) {
 
 /// The search's width in characters, in a full window and a narrow one.
 const SEARCH_WIDE: i32 = 30;
-const SEARCH_NARROW: i32 = 14;
+const SEARCH_NARROW: i32 = 20;
 
-/// The chat search, always in the header; the chats it finds list in the sidebar.
+/// The header search: chats as you type, then the messages Telegram finds.
 fn search_entry() -> gtk::SearchEntry {
     let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search chats  (Ctrl+F)"));
+    search.set_placeholder_text(Some("Search chats and messages"));
     search.add_css_class("bar-search");
     search.set_width_chars(SEARCH_WIDE);
-    search.update_property(&[gtk::accessible::Property::Label("Search chats")]);
+    search.update_property(&[gtk::accessible::Property::Label("Search chats and messages")]);
     search.connect_stop_search(|e| e.set_text(""));
     search
 }
 
-fn open_search(search: &gtk::SearchEntry, nav: &gtk::Box) {
-    if nav.has_css_class("compact") {
-        prefs::update(|p| p.sidebar_collapsed = false);
-        if let Some(w) = WINDOW.with(|w| w.borrow().clone()) {
-            relayout(&w);
-        }
-    }
+fn open_search(search: &gtk::SearchEntry) {
     search.grab_focus();
+}
+
+/// New: a message to someone, a group or channel, a secret chat, a folder.
+fn new_menu(anchor: &gtk::Button) {
+    let (p, body) = crate::actions::popover(anchor.upcast_ref(), None);
+    crate::actions::menu_item(&p, &body, "New message…", || {
+        crate::groups::choose_user("New message", |user| {
+            let Some(id) = user["id"].as_i64() else { return };
+            let Some(s) = service() else { return };
+            let session = s.generation.clone();
+            let rx = s.request("createPrivateChat", serde_json::json!({"user_id":id,"force":false}));
+            glib::spawn_future_local(async move {
+                if let Ok(Ok(chat)) = rx.recv().await
+                    && service_is_current(&session)
+                    && let Some(chat) = chat["id"].as_i64()
+                {
+                    open_chat(chat);
+                }
+            });
+        });
+    });
+    crate::actions::menu_item(&p, &body, "New group or channel…", crate::groups::create);
+    crate::actions::menu_item(&p, &body, "New secret chat…", || {
+        crate::groups::choose_user("New secret chat", |user| {
+            if let Some(id) = user["id"].as_i64() {
+                with_service(|s| s.create_secret_chat(id));
+            }
+        });
+    });
+    crate::actions::menu_item(&p, &body, "New folder…", crate::folders::manage);
+    p.popup();
 }
 
 pub fn toggle_sidebar() {
@@ -977,13 +1093,15 @@ fn relayout(w: &gtk::ApplicationWindow) {
         return;
     }
 
-    let narrow = width < 980 && std::env::var_os("PULSE_DEBUG_WIDE").is_none();
+    let narrow = width < nyx_ui::sidebar::NARROW_WIDTH && std::env::var_os("PULSE_DEBUG_WIDE").is_none();
     settings_dialog::fit(w);
+    let mut info_open = false;
     CONVERSATION_LAYOUT.with(|layout| {
         DETAIL_PANEL.with(|panel| {
             let layout = layout.borrow();
             let panel = panel.borrow();
             if let (Some((row, overlay)), Some(panel)) = (layout.as_ref(), panel.as_ref()) {
+                info_open = panel.root.is_visible();
                 if narrow && panel.root.parent().as_ref() == Some(row.upcast_ref()) {
                     row.remove(&panel.root);
                     panel.root.set_halign(gtk::Align::End);
@@ -995,6 +1113,7 @@ fn relayout(w: &gtk::ApplicationWindow) {
                     panel.root.set_halign(gtk::Align::Fill);
                     row.append(&panel.root);
                 }
+                panel.set_overlaid(narrow);
             }
         });
     });
@@ -1004,57 +1123,45 @@ fn relayout(w: &gtk::ApplicationWindow) {
         NARROW.with(|n| n.set(narrow));
         if let Some(search) = SEARCH.with(|s| s.borrow().clone()) {
             search.set_width_chars(if narrow { SEARCH_NARROW } else { SEARCH_WIDE });
-        }
-    }
-
-    let compact = narrow || prefs::get().sidebar_collapsed;
-    if compact != nav.has_css_class("compact") || !nav.has_css_class("laid-out") {
-        nav.add_css_class("laid-out");
-        apply_compact(&nav, compact);
-    }
-}
-
-fn apply_compact(nav: &gtk::Box, compact: bool) {
-    if compact {
-        nav.add_css_class("compact");
-    } else {
-        nav.remove_css_class("compact");
-    }
-
-    fn walk(w: &gtk::Widget, compact: bool) {
-        if w.has_css_class("compact-hide") {
-            w.set_visible(!compact);
-        }
-        if w.has_css_class("compact-show") {
-            w.set_visible(compact);
-        }
-        if w.has_css_class("nav-item")
-            && let Some(content) = w.downcast_ref::<gtk::Button>().and_then(|b| b.child())
-        {
-            content.set_halign(if compact { gtk::Align::Center } else { gtk::Align::Fill });
-            if let Some(bx) = content.downcast_ref::<gtk::Box>() {
-                bx.set_spacing(if compact { 0 } else { 10 });
+            if let Some(hint) = SEARCH_HINT.with(|h| h.borrow().clone()) {
+                hint.set_visible(!narrow && search.text().is_empty());
             }
         }
-        // Do not recurse into chat-list-root: it manages its own items, headers, and empty state
-        if w.has_css_class("chat-list-root") {
-            return;
-        }
-        let mut child = w.first_child();
-        while let Some(c) = child {
-            walk(&c, compact);
-            child = c.next_sibling();
-        }
     }
-    walk(nav.upcast_ref(), compact);
 
-    if let Some(chat_list) = CHAT_LIST.with(|l| l.borrow().clone()) {
-        chat_list.set_compact(compact);
+    // Info beside the chat takes the sidebar's room: the sidebar becomes the rail.
+    let crowded = info_open && width < 1500;
+    let compact = narrow || crowded || prefs::get().sidebar_collapsed;
+    if compact != nav.has_css_class("compact") || !nav.has_css_class("laid-out") {
+        nav.add_css_class("laid-out");
+        PLACES.with(|p| {
+            if let Some(p) = p.borrow().as_ref() {
+                p.set_compact(compact);
+            }
+        });
+    }
+    if let Some(list) = CHAT_LIST.with(|l| l.borrow().clone()) {
+        list.root.set_size_request(
+            if narrow {
+                LIST_NARROW
+            } else if compact {
+                LIST_RAIL
+            } else {
+                LIST_WIDE
+            },
+            -1,
+        );
     }
 }
 
+/// The chat list's width: beside the full sidebar, beside the rail, and at 800 px.
+const LIST_WIDE: i32 = 320;
+const LIST_RAIL: i32 = 300;
+const LIST_NARROW: i32 = 270;
+
 pub const SHORTCUTS: &[(&[&str], &str)] = &[
-    (&["Ctrl", "F"], "Search chats"),
+    (&["Ctrl", "F"], "Search chats and messages"),
+    (&["Ctrl", "N"], "New message, group, channel or secret chat"),
     (&["Ctrl", "Shift", "F"], "Search all messages"),
     (&["Ctrl", "B"], "Bold, in the composer; otherwise collapse the sidebar"),
     (&["Ctrl", "I"], "Italic, in the composer"),
@@ -1173,6 +1280,12 @@ fn install_shortcuts(
             win.close();
             return glib::Propagation::Stop;
         }
+        if ctrl && !modifier.contains(gdk::ModifierType::SHIFT_MASK) && (key == gdk::Key::n || key == gdk::Key::N) {
+            if let Some(b) = NEW_BUTTON.with(|b| b.borrow().clone()) {
+                new_menu(&b);
+            }
+            return glib::Propagation::Stop;
+        }
 
         glib::Propagation::Proceed
     });
@@ -1283,9 +1396,9 @@ pub fn select_messages_for_report() {
 }
 
 pub fn refresh_folders() {
-    CHAT_LIST.with(|list| {
-        if let Some(list) = list.borrow().as_ref() {
-            list.set_folders(&crate::folders::infos());
+    PLACES.with(|p| {
+        if let Some(p) = p.borrow().as_ref() {
+            p.set_folders(&crate::folders::infos());
         }
     });
 }
@@ -1309,9 +1422,10 @@ fn sync_pending_drafts() {
 }
 
 pub fn refresh_folder_labels() {
-    CHAT_LIST.with(|list| {
-        if let Some(list) = list.borrow().as_ref() {
-            list.refresh_folder_labels(&crate::folders::infos());
+    let chats = CHAT_LIST.with(|l| l.borrow().as_ref().map(|l| l.get_all_chats())).unwrap_or_default();
+    PLACES.with(|p| {
+        if let Some(p) = p.borrow().as_ref() {
+            p.refresh_counts(&chats);
         }
     });
 }
@@ -1351,5 +1465,5 @@ pub(crate) fn show_media(message: &nyx_telegram_core::models::MessageSummary) {
     MEDIA_VIEWER.with(|m| { if let Some(m) = m.borrow().as_ref() { m.show_message(message); } });
 }
 
-pub fn focus_chat_search(){SEARCH.with(|s|NAV.with(|n|{if let(Some(s),Some(n))=(s.borrow().as_ref(),n.borrow().as_ref()){open_search(s,n);}}));}
+pub fn focus_chat_search(){SEARCH.with(|s|{if let Some(s)=s.borrow().as_ref(){open_search(s);}});}
 pub fn open_settings(){OVERLAY.with(|o|WINDOW.with(|w|{if let(Some(o),Some(w))=(o.borrow().as_ref(),w.borrow().as_ref()){settings_dialog::open(o,w);}}));}

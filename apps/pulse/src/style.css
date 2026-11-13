@@ -1,11 +1,12 @@
-/* Pulse on Nyx 2.0: only Pulse's own parts. One surface: the header, the chat list,
-   the conversation and the detail panel share the window's background; bubbles and
-   cards are soft fills, and spacing, not lines, separates the rest. */
+/* Pulse on Nyx 2.0: only Pulse's own parts. The frame (nyx_ui::frame) holds the
+   sidebar of places beside the sheet; in the sheet, the chat list, the conversation
+   and, when it's open, Info beside it. Bubbles and cards are soft fills. */
 
-.header-status {
-    font-size: 11.5px;
-    color: @theme_dim_text;
-    font-feature-settings: "tnum";
+/* ---------- Header ---------- */
+
+.key-hint {
+    color: @theme_text_tertiary;
+    font-size: 0.846em;
 }
 
 window.pulse-window .app-header button.bar-button {
@@ -16,11 +17,22 @@ window.pulse-window .app-header button.bar-button {
     box-shadow: none;
 }
 
-/* The icon-only sidebar hides its group labels itself. The shared sheet's
-   font-size: 0 for them can stick after the sidebar expands again. */
-.settings-navigation .nav-group,
-.settings-navigation.compact .nav-group {
-    font-size: 11px;
+window.pulse-window .app-header button.new-button {
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 7px;
+    background: @field;
+    box-shadow: inset 0 0 0 1px @hairline;
+    font-weight: 600;
+}
+
+window.pulse-window .app-header button.new-button:hover {
+    background: mix(@field, @theme_text, 0.06);
+}
+
+window.pulse-window .app-header button.new-button .key-hint {
+    margin-left: 2px;
+    font-weight: 400;
 }
 
 .pulse-window {
@@ -39,34 +51,173 @@ window.pulse-window .app-header button.bar-button {
     border: none;
 }
 
-/* Chat navigation items inside .settings-navigation */
-.settings-navigation button.nav-item.chat-item {
-    min-height: 48px;
-    padding: 6px 10px;
-    margin: 1px 0;
+/* ---------- Sidebar: places ---------- */
+
+/* The icon-only sidebar hides its group labels itself. The shared sheet's
+   font-size: 0 for them can stick after the sidebar expands again. */
+.settings-navigation .nav-group,
+.settings-navigation.compact .nav-group {
+    font-size: 11px;
 }
 
-.settings-navigation.compact button.nav-item.chat-item {
-    min-width: 40px;
-    min-height: 40px;
-    padding: 0;
-    margin: 2px 0;
+.settings-navigation separator.nav-divider {
+    margin: 8px 14px 6px;
+    min-height: 2px;
+    border-radius: 1px;
+    background: @theme_divider;
 }
 
-.unread-pip {
-    min-width: 9px;
-    min-height: 9px;
+.settings-navigation .folder-dot {
+    min-width: 8px;
+    min-height: 8px;
+    margin: 0 4px;
     border-radius: 9999px;
-    background-color: @theme_accent;
-    border: 2px solid @theme_bg;
-    margin-top: -2px;
-    margin-right: -2px;
+    background-color: currentColor;
 }
 
+window.pulse-window .settings-navigation button.account-foot {
+    margin: 12px 2px 0;
+    padding: 8px;
+    border-radius: var(--nyx-radius-card);
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px @hairline;
+}
+
+window.pulse-window .settings-navigation button.account-foot:hover {
+    background: mix(@theme_card, @theme_text, 0.04);
+}
+
+window.pulse-window .settings-navigation.compact button.account-foot {
+    margin: 12px 0 0;
+    padding: 6px 0;
+    background: none;
+    box-shadow: none;
+}
+
+.account-name {
+    font-weight: 600;
+    font-size: 0.923em;
+}
+
+.account-status {
+    color: @theme_text_tertiary;
+    font-size: 0.846em;
+}
+
+image.account-state {
+    -gtk-icon-size: 11px;
+    color: @theme_text_tertiary;
+}
+
+image.account-state.connected {
+    color: @theme_success;
+}
+
+/* ---------- Chat list ---------- */
+
+.chat-list-pane scrolledwindow,
+.chat-list-pane viewport,
+.chat-view-column scrolledwindow,
+.chat-view-column viewport,
+.detail-panel scrolledwindow,
+.detail-panel viewport {
+    background: transparent;
+}
+
+.chat-list {
+    padding: 6px 0;
+}
+
+.folders-hint {
+    margin: 2px 12px 4px;
+    font-size: 0.885em;
+    color: @theme_text_tertiary;
+}
+
+.list-heading {
+    margin: 10px 18px 4px;
+    font-size: 0.846em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: @theme_text_tertiary;
+}
+
+window.pulse-window button.chat-row {
+    min-height: 0;
+    padding: 8px 10px;
+    margin: 0 6px;
+    border: none;
+    border-radius: var(--nyx-radius-small);
+    background: none;
+    box-shadow: none;
+    font-weight: 400;
+}
+
+window.pulse-window button.chat-row:hover {
+    background: @row_hover;
+}
+
+window.pulse-window button.chat-row.active {
+    background: @nav_active;
+}
+
+.chat-title {
+    font-weight: 600;
+    color: @theme_text;
+}
+
+.chat-snippet {
+    font-size: 0.923em;
+    color: @theme_dim_text;
+}
+
+.chat-time {
+    font-size: 0.846em;
+    color: @theme_text_tertiary;
+}
+
+image.row-mark {
+    -gtk-icon-size: 13px;
+    color: @theme_text_tertiary;
+}
+
+image.row-mark.missed,
+.chat-snippet.missed {
+    color: @theme_danger;
+}
+
+.row-tick {
+    color: @theme_accent;
+    font-size: 0.77em;
+    font-weight: 700;
+    letter-spacing: -2px;
+    margin-right: 2px;
+}
+
+.unread-badge {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background-color: @theme_accent;
+    color: @theme_on_accent;
+    font-size: 0.77em;
+    font-weight: 700;
+}
+
+.unread-badge.muted {
+    background-color: @track;
+    color: @theme_dim_text;
+}
+
+.folder-tags {
+    font-size: 0.77em;
+    color: @theme_text_tertiary;
+}
+
+/* Avatars: a photo, or initials on a colour picked from the name. */
 .chat-avatar-mini {
     border-radius: 9999px;
-    min-width: 32px;
-    min-height: 32px;
     background-color: @lift;
 }
 
@@ -74,6 +225,25 @@ window.pulse-window .app-header button.bar-button {
 .chat-avatar-mini picture {
     border-radius: 9999px;
 }
+
+.chat-avatar-mini.tinted {
+    background-color: currentColor;
+}
+
+.chat-avatar-initials {
+    color: @theme_accent;
+    font-weight: 600;
+    padding: 0;
+    margin: 0;
+}
+
+.chat-avatar-mini.tinted .chat-avatar-initials {
+    color: #ffffff;
+}
+
+.chat-avatar-initials.small { font-size: 0.72em; }
+.chat-avatar-initials.medium { font-size: 1.05em; }
+.chat-avatar-initials.large { font-size: 1.9em; }
 
 .chat-avatar-mini.saved-messages-avatar {
     background-color: @theme_accent;
@@ -84,83 +254,26 @@ window.pulse-window .app-header button.bar-button {
     color: @theme_on_accent;
 }
 
-.chat-avatar-initials {
-    color: @theme_accent;
-    font-weight: 600;
-    font-size: 0.82em;
-    padding: 0;
-    margin: 0;
-}
+/* ---------- Conversation ---------- */
 
-.settings-navigation.compact button.nav-item {
-    min-width: 40px;
-    min-height: 40px;
-    margin: 4px 0;
-    padding: 0;
-    border-radius: 9999px;
-}
-
-.settings-navigation.compact button.nav-item.active {
-    background: @nav_active;
-}
-
-.settings-navigation.compact .chat-item {
-    min-width: 40px;
-    min-height: 40px;
-    padding: 0;
-}
-
-.settings-navigation button.nav-item.active .chat-avatar-mini {
-    background-color: mix(@lift, @theme_accent, 0.2);
-    color: @theme_accent;
-}
-
-.chat-title {
-    font-weight: 600;
-    font-size: 0.95em;
-    color: @theme_text;
-}
-
-.chat-snippet {
-    font-size: 0.8em;
-    color: @theme_dim_text;
-}
-
-.chat-time {
-    font-size: 0.74em;
-    color: @theme_dim_text;
-}
-
-.unread-badge {
-    background-color: @theme_accent;
-    color: @theme_on_accent;
-    font-size: 0.74em;
-    font-weight: 600;
-    border-radius: 9999px;
-    padding: 1px 6px;
-    min-width: 16px;
-}
-
-/* Active chat view */
 .chat-view-column {
-    background-color: @theme_bg;
+    background-color: transparent;
 }
 
 .chat-header {
-    min-height: 46px;
-    padding: 0 16px;
-    background-color: @theme_bg;
+    min-height: 56px;
+    padding: 0 10px 0 16px;
+    border-bottom: 1px solid @theme_divider;
 }
 
 .chat-header-title {
     font-weight: 600;
-    font-size: 1.0em;
     color: @theme_text;
 }
 
 .chat-header-status {
-    font-size: 0.82em;
-    color: @theme_dim_text;
+    font-size: 0.846em;
+    color: @theme_text_tertiary;
 }
 
 .chat-header-status.typing {
@@ -168,21 +281,56 @@ window.pulse-window .app-header button.bar-button {
     font-weight: 600;
 }
 
-/* Date separator in chat history */
-.date-separator {
-    border: none;
-    border-radius: 9999px;
-    padding: 3px 12px;
-    font-size: 0.76em;
+window.pulse-window button.pinned-chip {
+    min-height: 30px;
+    padding: 0 10px;
+    margin-right: 6px;
+    border-radius: var(--nyx-radius-small);
+    background: @field;
+    box-shadow: none;
     color: @theme_dim_text;
-    font-weight: 600;
-    margin: 8px 0;
-    background-color: @theme_card;
+    font-size: 0.846em;
+    font-weight: 400;
 }
 
-/* Message history list */
-.chat-wallpaper {
-    background-color: @theme_bg;
+window.pulse-window button.pinned-chip image {
+    -gtk-icon-size: 13px;
+    color: @theme_accent;
+}
+
+.pinned-label {
+    color: @theme_accent;
+    font-weight: 600;
+}
+
+window.pulse-window button.call-button {
+    min-height: 30px;
+    padding: 0 12px;
+    margin: 0 2px;
+    border-radius: 7px;
+    background: @field;
+    box-shadow: inset 0 0 0 1px @hairline;
+    font-weight: 600;
+}
+
+window.pulse-window button.call-button:hover {
+    background: mix(@field, @theme_text, 0.06);
+}
+
+window.pulse-window button.info-toggle.active {
+    background: @nav_active;
+    color: @theme_accent;
+}
+
+/* Date separator in chat history */
+.date-separator {
+    border-radius: 10px;
+    padding: 3px 10px;
+    margin: 6px 0 4px;
+    font-size: 0.846em;
+    font-weight: 600;
+    color: @theme_dim_text;
+    background-color: @field;
 }
 
 .transparent-scroll {
@@ -190,91 +338,111 @@ window.pulse-window .app-header button.bar-button {
 }
 
 .message-history-list {
-    padding: 12px 20px;
+    padding: 14px 18px 10px;
 }
 
 .message-row {
     margin: 4px 0;
 }
 
+.message-sender-avatar {
+    margin-right: 8px;
+}
+
 .message-bubble {
-    border-radius: var(--nyx-radius-card);
-    padding: 8px 14px;
+    border-radius: 14px 14px 14px 5px;
+    padding: 7px 11px 6px;
 }
 
 .message-sender-name {
-    color: @theme_accent;
     font-weight: 600;
-    font-size: 0.82em;
+    font-size: 0.923em;
     margin-bottom: 2px;
 }
 
-.message-photo-frame {
-    border-radius: var(--nyx-radius-card);
-    margin-bottom: 4px;
+.message-photo-frame,
+.message-photo-img {
+    border-radius: 6px;
 }
 
-.message-photo-img {
-    border-radius: var(--nyx-radius-card);
+.message-bubble picture.message-picture {
+    border-radius: 6px;
 }
 
 .message-video-card,
-.message-document-card,
 .message-voice-card,
 .message-call-card {
     border: none;
-    border-radius: var(--nyx-radius-card);
+    border-radius: 10px;
     padding: 8px 12px;
     margin-bottom: 4px;
-    background-color: @theme_card;
+    background-color: @field;
 }
 
-.message-media-icon {
-    background-color: @theme_surface;
-    border-radius: var(--nyx-radius-small);
-    padding: 6px;
-    color: @theme_accent;
+/* A file: its type in an accent square, name and size, one action. */
+.message-document-card {
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin: 4px 0 2px;
+    background-color: @field;
+}
+
+.message-document-icon {
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 9px;
+    background-color: @theme_accent;
+    color: @theme_on_accent;
 }
 
 .message-media-title {
     font-weight: 600;
-    font-size: 0.88em;
     color: @theme_text;
 }
 
 .message-media-sub {
-    font-size: 0.76em;
-    color: @theme_dim_text;
+    font-size: 0.846em;
+    color: @theme_text_tertiary;
 }
 
-.message-download-icon {
-    color: @theme_dim_text;
-    margin-left: 8px;
+window.pulse-window button.message-file-action {
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 6px;
+    background: alpha(@theme_text, 0.06);
+    box-shadow: inset 0 0 0 1px @hairline;
+    font-size: 0.846em;
+    font-weight: 500;
 }
 
-.message-voice-play {
-    background-color: @theme_accent;
+.message-voice {
+    margin: 2px 0;
+}
+
+window.pulse-window button.message-voice-play {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
     border-radius: 9999px;
-    padding: 6px;
+    background-color: @theme_accent;
     color: @theme_on_accent;
-}
-
-.message-waveform {
-    margin: 0 8px;
+    box-shadow: none;
 }
 
 .waveform-bar {
-    min-width: 2px;
-    min-height: 14px;
+    min-width: 3px;
+    border-radius: 2px;
+    background-color: @track;
+}
+
+.waveform-bar.played {
     background-color: @theme_accent;
-    border-radius: 1px;
-    opacity: 0.7;
 }
 
 .message-voice-duration {
-    font-size: 0.76em;
+    font-size: 0.846em;
     color: @theme_dim_text;
-    font-weight: 600;
+    font-feature-settings: "tnum";
 }
 
 .sticker-bubble {
@@ -301,29 +469,27 @@ window.pulse-window .app-header button.bar-button {
     border: none;
     color: @theme_text;
     background-color: @theme_card;
+    box-shadow: inset 0 0 0 1px @hairline;
 }
 
 .message-bubble.outgoing {
-    background-color: @nav_active;
     border: none;
+    border-radius: 14px 14px 5px 14px;
     color: @theme_text;
+    background-color: mix(@theme_card, @theme_accent, 0.22);
 }
 
 .message-text {
-    font-size: 0.95em;
-    line-height: 1.4;
+    line-height: 1.45;
 }
 
-.message-footer {
-    margin-top: 4px;
-    font-size: 0.76em;
-    color: @theme_dim_text;
+.message-time {
+    font-size: 0.77em;
+    color: @theme_text_tertiary;
 }
 
-.message-status-tick {
+.message-time.read {
     color: @theme_accent;
-    font-size: 0.85em;
-    margin-left: 4px;
 }
 
 /* In-bubble reply quote */
@@ -371,63 +537,181 @@ window.pulse-window .app-header button.bar-button {
     font-size: 0.78em;
 }
 
-/* Composer */
+/* The composer: one rounded field (attach, the text, emoji) and a round button
+   that records until there's text, then sends. */
 .message-composer {
-    min-height: 52px;
-    padding: 8px 16px;
-    background-color: @theme_bg;
+    padding: 10px 14px 12px;
+    background-color: transparent;
 }
 
-.composer-input-box {
-    border: none;
-    border-radius: var(--nyx-radius-small);
-    padding: 4px 10px;
-    min-height: 36px;
+.composer-field {
+    min-height: 42px;
+    padding: 0 4px;
+    border-radius: 21px;
     background-color: @theme_card;
+    box-shadow: inset 0 0 0 1px @hairline;
 }
 
-.composer-input-box:focus-within {
+.composer-field:focus-within {
     box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.5);
 }
 
-.message-composer > scrolledwindow {
-    border: none;
-    border-radius: var(--nyx-radius-small);
-    padding: 6px 10px;
-    background-color: @theme_card;
+.composer-field scrolledwindow {
+    padding: 10px 4px;
+    background: transparent;
 }
 
-.message-composer > scrolledwindow:focus-within {
-    box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.5);
+.composer-placeholder {
+    margin-left: 6px;
+    color: @theme_text_tertiary;
+}
+
+.composer-field button.icon-button {
+    margin: 5px 0;
 }
 
 .composer-input {
     background: transparent;
     border: none;
     color: @theme_text;
-    font-size: 0.95em;
 }
 
-/* Collapsible right detail panel */
+window.pulse-window button.composer-action {
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0;
+    border-radius: 9999px;
+    background-color: @theme_accent;
+    color: @theme_on_accent;
+    box-shadow: none;
+}
+
+window.pulse-window button.composer-action:hover {
+    background-color: mix(@theme_accent, @theme_on_accent, 0.12);
+}
+
+window.pulse-window button.composer-action:disabled {
+    background-color: alpha(@theme_accent, 0.35);
+    color: alpha(@theme_on_accent, 0.7);
+}
+
+window.pulse-window button.composer-action image {
+    -gtk-icon-size: 18px;
+}
+
+/* ---------- Info beside the chat ---------- */
+
 .detail-panel {
     background-color: @theme_bg;
-    min-width: 280px;
 }
 
-.detail-header {
-    min-height: 30px;
+.detail-panel.overlaid {
+    box-shadow: -8px 0 24px alpha(@theme_shadow, 0.35);
 }
 
-.detail-avatar-large {
-    border-radius: 9999px;
-    min-width: 80px;
-    min-height: 80px;
-    background-color: @lift;
-    color: @theme_accent;
+.detail-head {
+    padding: 18px 14px 12px;
+}
+
+.detail-title {
+    margin-top: 6px;
     font-weight: 600;
-    font-size: 1.8em;
-    margin-top: 16px;
-    margin-bottom: 8px;
+    font-size: 1.077em;
+}
+
+.detail-subtitle {
+    color: @theme_dim_text;
+    font-size: 0.923em;
+}
+
+.quick-actions {
+    margin-top: 10px;
+}
+
+window.pulse-window button.quick-action {
+    padding: 7px 0 6px;
+    border-radius: var(--nyx-radius-small);
+    background: @field;
+    box-shadow: none;
+    color: @theme_dim_text;
+    font-size: 0.77em;
+    font-weight: 400;
+}
+
+window.pulse-window button.quick-action image {
+    -gtk-icon-size: 16px;
+    color: @theme_accent;
+}
+
+.detail-info {
+    padding: 12px 14px 18px;
+}
+
+.detail-row {
+    padding: 9px 12px;
+}
+
+.detail-row + .detail-row {
+    border-top: 1px solid @theme_divider;
+}
+
+.detail-key {
+    color: @theme_text;
+}
+
+.detail-value,
+.detail-about {
+    color: @theme_dim_text;
+    font-size: 0.923em;
+}
+
+.detail-section {
+    margin: 2px 2px -8px;
+}
+
+.detail-section-title {
+    font-weight: 600;
+    font-size: 0.846em;
+    color: @theme_dim_text;
+}
+
+.detail-count {
+    font-size: 0.846em;
+    color: @theme_text_tertiary;
+}
+
+window.pulse-window button.detail-link {
+    min-height: 0;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    color: @theme_accent;
+    font-size: 0.846em;
+    font-weight: 500;
+}
+
+window.pulse-window button.media-tile {
+    min-height: 68px;
+    padding: 0;
+    border-radius: 6px;
+    background: @lift;
+    box-shadow: none;
+}
+
+window.pulse-window button.detail-action {
+    padding: 9px 12px;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    font-weight: 400;
+}
+
+window.pulse-window button.detail-action + button.detail-action {
+    border-top: 1px solid @theme_divider;
+}
+
+window.pulse-window button.detail-action image {
+    color: @theme_text_tertiary;
 }
 
 /* Authentication Card */
@@ -506,7 +790,7 @@ window.pulse-window .app-header button.bar-button {
     margin-top: 16px;
 }
 
-button.call-control-btn {
+window.pulse-window button.call-control-btn {
     border-radius: 9999px;
     min-width: 44px;
     min-height: 44px;
@@ -516,23 +800,23 @@ button.call-control-btn {
     color: @theme_text;
 }
 
-button.call-control-btn:hover {
+window.pulse-window button.call-control-btn:hover {
     background-color: mix(@lift, @theme_text, 0.1);
 }
 
-button.call-control-btn.active {
+window.pulse-window button.call-control-btn.active {
     background-color: @theme_accent;
     color: @theme_on_accent;
     border-color: @theme_accent;
 }
 
-button.call-control-btn.call-btn-hangup {
+window.pulse-window button.call-control-btn.call-btn-hangup {
     background-color: @theme_danger;
     color: @theme_on_accent;
     border-color: @theme_danger;
 }
 
-button.call-control-btn.call-btn-hangup:hover {
+window.pulse-window button.call-control-btn.call-btn-hangup:hover {
     background-color: @theme_danger;
 }
 
@@ -570,7 +854,7 @@ button.call-control-btn.call-btn-hangup:hover {
     margin-bottom: 2px;
 }
 
-button.emoji-btn {
+window.pulse-window button.emoji-btn {
     font-size: 1.4em;
     padding: 4px;
     min-width: 32px;
@@ -578,18 +862,18 @@ button.emoji-btn {
     border-radius: var(--nyx-radius-small);
 }
 
-button.emoji-btn:hover {
+window.pulse-window button.emoji-btn:hover {
     background-color: @row_hover;
 }
 
-button.sticker-btn {
+window.pulse-window button.sticker-btn {
     border: none;
     border-radius: var(--nyx-radius-card);
     padding: 6px;
     background-color: @theme_card;
 }
 
-button.sticker-btn:hover {
+window.pulse-window button.sticker-btn:hover {
     background-color: mix(@theme_card, @theme_text, 0.04);
 }
 
@@ -602,14 +886,14 @@ button.sticker-btn:hover {
     color: @theme_dim_text;
 }
 
-button.gif-btn {
+window.pulse-window button.gif-btn {
     border: none;
     border-radius: var(--nyx-radius-small);
     padding: 8px 10px;
     background-color: @theme_card;
 }
 
-button.gif-btn:hover {
+window.pulse-window button.gif-btn:hover {
     background-color: @row_hover;
 }
 
@@ -684,14 +968,14 @@ button.gif-btn:hover {
     font-size: 0.75em;
 }
 
-button.shared-media-thumb {
+window.pulse-window button.shared-media-thumb {
     border: none;
     border-radius: var(--nyx-radius-card);
     padding: 8px 4px;
     background-color: @theme_card;
 }
 
-button.shared-media-thumb:hover {
+window.pulse-window button.shared-media-thumb:hover {
     background-color: mix(@theme_card, @theme_text, 0.04);
 }
 
@@ -713,9 +997,4 @@ button.shared-media-thumb:hover {
 .selected-message .message-bubble {
     background-color: @nav_active;
     box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.6);
-}
-
-.folder-tags {
-    font-size: 0.72em;
-    color: @theme_dim_text;
 }

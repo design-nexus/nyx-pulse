@@ -407,6 +407,9 @@ pub fn search(chat: Option<i64>) {
 pub fn pinned(chat: i64) {
     browser(SearchMode::Chat(chat), 8);
 }
+pub fn photos(chat: i64) {
+    browser(SearchMode::Chat(chat), 1);
+}
 fn browser(mode: SearchMode, filter: u32) {
     let Some(scope) = Scope::current() else { return };
     let (dialog, body) = w::dialog(

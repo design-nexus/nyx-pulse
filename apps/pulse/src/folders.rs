@@ -17,6 +17,7 @@ struct State {
     main_position: i32,
     tags: bool,
     unread: HashMap<i32, i64>,
+    archive_total: Option<i64>,
     checked: HashMap<i32, std::time::Instant>,
 }
 thread_local! {static STATE:RefCell<State>=RefCell::new(State::default());}
@@ -44,6 +45,8 @@ pub fn update(value: &Value) {
             STATE.with(|s| {
                 s.borrow_mut().unread.insert(id as i32, value["unread_count"].as_i64().unwrap_or(0));
             });
+        } else if value["chat_list"]["@type"] == "chatListArchive" {
+            STATE.with(|s| s.borrow_mut().archive_total = value["total_count"].as_i64());
         } else {
             return;
         }
@@ -66,8 +69,16 @@ pub fn update(value: &Value) {
         }
     }
 }
-pub fn title(info: &Value) -> String {
-    let count = STATE.with(|s| s.borrow().unread.get(&(info["id"].as_i64().unwrap_or(0) as i32)).copied().unwrap_or(0));
+/// Unread chats in a folder, as Telegram counts them.
+pub fn unread(id: i32) -> Option<i64> {
+    STATE.with(|s| s.borrow().unread.get(&id).copied())
+}
+/// Every chat in Archive, loaded or not.
+pub fn archive_total() -> Option<i64> {
+    STATE.with(|s| s.borrow().archive_total)
+}
+fn title(info: &Value) -> String {
+    let count = unread(info["id"].as_i64().unwrap_or(0) as i32).unwrap_or(0);
     if count > 0 { format!("{} · {count}", name(info)) } else { name(info) }
 }
 pub fn tags(chat: &ChatSummary) -> Vec<String> {

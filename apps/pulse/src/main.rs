@@ -46,6 +46,7 @@ mod message_tools;
 mod detail_panel;
 mod media_viewer;
 mod picker;
+mod places;
 mod prefs;
 mod recording;
 mod rich_text;

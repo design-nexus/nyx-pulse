@@ -44,9 +44,21 @@ pub struct ChatView {
     sending: Cell<bool>,
     send_generation: Cell<u64>,
     composer: gtk::Box,
-    sender_button: gtk::Button,
+    send_button: gtk::Button,
+    placeholder: gtk::Label,
     call_button: gtk::Button,
+    call_label: gtk::Label,
     video_button: gtk::Button,
+    info_button: gtk::Button,
+    pinned_button: gtk::Button,
+    pinned_text: gtk::Label,
+    pinned_id: Cell<Option<i64>>,
+    pages: gtk::Stack,
+    members: Cell<(i64, i64)>,
+    details_revision: Cell<u64>,
+    callable: Cell<bool>,
+    info_open: Cell<bool>,
+    day_marks_pending: Cell<bool>,
     loading: Cell<bool>,
     has_more: Cell<bool>,
     last_typing: Cell<Option<std::time::Instant>>,
@@ -82,14 +94,35 @@ impl ChatView {
         titles.append(&title_label);
         titles.append(&status_label);
         header.append(&titles);
-        let call = w::bar_button("call-start-symbolic", "Voice call");
-        let video = w::bar_button("camera-video-symbolic", "Video call");
-        call.set_sensitive(false);
-        video.set_sensitive(false);
-        let search = w::bar_button("edit-find-symbolic", "Search messages");
-        let details = w::bar_button("view-more-symbolic", "Conversation details");
-        let menu = w::bar_button("open-menu-symbolic", "Chat actions");
-        for b in [&search, &call, &video, &details, &menu] {
+        let pinned = gtk::Button::new();
+        pinned.add_css_class("pinned-chip");
+        let chip = w::hbox(7);
+        let pin_icon = gtk::Image::from_icon_name("view-pin-symbolic");
+        chip.append(&pin_icon);
+        chip.append(&w::label("Pinned", "pinned-label"));
+        let pinned_text = w::label("", "pinned-text");
+        pinned_text.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        pinned_text.set_max_width_chars(26);
+        chip.append(&pinned_text);
+        pinned.set_child(Some(&chip));
+        pinned.set_visible(false);
+        pinned.set_valign(gtk::Align::Center);
+        let search = w::icon_button("edit-find-symbolic", "Search in this chat");
+        let call = gtk::Button::new();
+        call.add_css_class("call-button");
+        let call_face = w::hbox(6);
+        call_face.append(&gtk::Image::from_icon_name("call-start-symbolic"));
+        let call_label = gtk::Label::new(Some("Call"));
+        call_face.append(&call_label);
+        call.set_child(Some(&call_face));
+        call.set_valign(gtk::Align::Center);
+        call.set_visible(false);
+        let video = w::icon_button("camera-video-symbolic", "Video call");
+        video.set_visible(false);
+        let details = w::icon_button("dialog-information-symbolic", "Info: members, shared media and settings");
+        details.add_css_class("info-toggle");
+        let menu = w::icon_button("view-more-horizontal-symbolic", "More");
+        for b in [&pinned, &search, &call, &video, &details, &menu] {
             header.append(b);
         }
         root.append(&header);
@@ -144,15 +177,15 @@ impl ChatView {
         let cancel = w::bar_button("window-close-symbolic", "Cancel reply");
         reply_banner.append(&cancel);
         root.append(&reply_banner);
-        let sender_button=gtk::Button::with_label("Send as…");
-        sender_button.add_css_class("flat");sender_button.set_visible(false);
-        if let Some(label)=sender_button.child().and_downcast::<gtk::Label>(){label.set_ellipsize(gtk::pango::EllipsizeMode::End);label.set_max_width_chars(32);}
-        root.append(&sender_button);
         let composer = w::hbox(8);
         composer.add_css_class("message-composer");
         composer.set_sensitive(false);
-        let attach = w::bar_button("mail-attachment-symbolic", "Attach files or photos");
-        composer.append(&attach);
+        let field = w::hbox(4);
+        field.add_css_class("composer-field");
+        field.set_hexpand(true);
+        let attach = w::icon_button("mail-attachment-symbolic", "Attach a file or photo, or send a poll, contact or location");
+        attach.set_valign(gtk::Align::End);
+        field.append(&attach);
         let text_view = gtk::TextView::new();
         text_view.add_css_class("composer-input");
         text_view.set_wrap_mode(gtk::WrapMode::WordChar);
@@ -160,29 +193,45 @@ impl ChatView {
         text_view.set_hexpand(true);
         let input = gtk::ScrolledWindow::builder()
             .hexpand(true)
-            .min_content_height(36)
+            .min_content_height(22)
             .max_content_height(160)
             .propagate_natural_height(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::External)
             .child(&text_view)
             .build();
-        composer.append(&input);
-        let format = w::bar_button("format-text-bold-symbolic", "Format selected text");
-        format.set_visible(false);
-        composer.append(&format);
-        let mention = w::bar_button("avatar-default-symbolic", "Mention someone");
-        mention.set_visible(false);
-        composer.append(&mention);
-        let emoji = w::bar_button("face-smile-symbolic", "Emoji, stickers and GIFs");
-        composer.append(&emoji);
-        let record = w::bar_button("audio-input-microphone-symbolic", "Record voice message");
-        composer.append(&record);
-        let send = w::bar_button("document-send-symbolic", "Send (Enter)");
+        let typing = gtk::Overlay::new();
+        typing.set_hexpand(true);
+        typing.set_child(Some(&input));
+        let placeholder = w::label("Message", "composer-placeholder");
+        placeholder.set_can_target(false);
+        placeholder.set_halign(gtk::Align::Start);
+        placeholder.set_valign(gtk::Align::Center);
+        placeholder.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        typing.add_overlay(&placeholder);
+        field.append(&typing);
+        let emoji = w::icon_button("face-smile-symbolic", "Emoji, stickers and GIFs");
+        emoji.set_valign(gtk::Align::End);
+        field.append(&emoji);
+        composer.append(&field);
+        let send = gtk::Button::from_icon_name("audio-input-microphone-symbolic");
+        send.add_css_class("composer-action");
+        send.set_valign(gtk::Align::End);
+        send.set_tooltip_text(Some("Record a voice message"));
+        send.update_property(&[gtk::accessible::Property::Label("Record a voice message")]);
         composer.append(&send);
-        let send_options = w::bar_button("pan-down-symbolic", "Send silently or schedule");
-        composer.append(&send_options);
         root.append(&composer);
+        let column = root;
+        let pages = gtk::Stack::new();
+        pages.add_named(&column, Some("chat"));
+        let empty = w::empty_state("pulse-chats-symbolic", "No chat open", "Choose a chat from the list, or start one with New.", None);
+        pages.add_named(&empty, Some("empty"));
+        pages.set_visible_child_name("empty");
+        let root = w::vbox(0);
+        root.set_hexpand(true);
+        root.set_vexpand(true);
+        root.add_css_class("chat-view-column");
+        root.append(&pages);
         let v = Rc::new(Self {
             detached: Cell::new(false),
             self_weak: Default::default(),
@@ -214,9 +263,21 @@ impl ChatView {
             sending: Cell::new(false),
             send_generation: Cell::new(0),
             composer,
-            sender_button: sender_button.clone(),
+            send_button: send.clone(),
+            placeholder,
             call_button: call.clone(),
+            call_label,
             video_button: video.clone(),
+            info_button: details.clone(),
+            pinned_button: pinned.clone(),
+            pinned_text,
+            pinned_id: Cell::new(None),
+            pages,
+            members: Cell::new((0, 0)),
+            details_revision: Cell::new(0),
+            callable: Cell::new(false),
+            info_open: Cell::new(false),
+            day_marks_pending: Cell::new(false),
             loading: Cell::new(false),
             has_more: Cell::new(true),
             last_typing: Cell::new(None),
@@ -228,8 +289,18 @@ impl ChatView {
             on_media: Default::default(),
         });
         *v.self_weak.borrow_mut()=Rc::downgrade(&v);
-        let (format_,mention_)=(format.downgrade(),mention.downgrade());let width=Cell::new(0);
-        v.root.add_tick_callback(move|root,_|{let current=root.width();if current>0&&current!=width.replace(current){for button in [&format_,&mention_]{if let Some(button)=button.upgrade(){button.set_visible(current>=560);}}}glib::ControlFlow::Continue});
+        let weak = Rc::downgrade(&v);
+        let width = Cell::new(0);
+        v.root.add_tick_callback(move |root, _| {
+            let current = root.width();
+            if current > 0
+                && current != width.replace(current)
+                && let Some(v) = weak.upgrade()
+            {
+                v.fit_header();
+            }
+            glib::ControlFlow::Continue
+        });
 
         macro_rules! clicked {
             ($b:expr,$f:expr) => {{
@@ -241,9 +312,18 @@ impl ChatView {
                 });
             }};
         }
-        let weak=Rc::downgrade(&v);
-        sender_button.connect_clicked(move |_|{if let Some(v)=weak.upgrade(){let chat=*v.current_chat_id.borrow();if let Some(chat)=chat{crate::identities::choose(chat);}}});
-        clicked!(send, |v: Rc<Self>| v.send_current_text());
+        clicked!(send, |v: Rc<Self>| {
+            if v.has_text() {
+                v.send_current_text();
+            } else {
+                crate::recording::open(&v.root, *v.current_chat_id.borrow());
+            }
+        });
+        clicked!(pinned, |v: Rc<Self>| {
+            if let Some(id) = v.pinned_id.get() {
+                v.jump_to(id);
+            }
+        });
         clicked!(cancel, |v: Rc<Self>| v.clear_reply());
         clicked!(v.jump, |v: Rc<Self>| v.scroll_to_bottom());
         let weak = Rc::downgrade(&v);
@@ -266,26 +346,27 @@ impl ChatView {
             let (weak,anchor)=(Rc::downgrade(&v),button.downgrade());
             crate::actions::menu_item(&p,&body,"Format message…",move||{if let(Some(v),Some(anchor))=(weak.upgrade(),anchor.upgrade()){crate::compose::menu(anchor.upcast_ref(),&v.text_view);}});
             let weak=Rc::downgrade(&v);crate::actions::menu_item(&p,&body,"Mention someone…",move||{if let Some(v)=weak.upgrade(){crate::message_tools::mention(&v);}});
+            let sender = v.current_chat.borrow().as_ref().filter(|c| matches!(c.chat_type, ChatType::Supergroup | ChatType::Channel)).map(|c| c.data["pulse_sender_name"].as_str().filter(|s| !s.is_empty()).unwrap_or("Telegram default").to_string());
+            if let Some(sender) = sender {
+                crate::actions::menu_item(&p, &body, &format!("Send as: {sender}…"), move || crate::identities::choose(chat));
+            }
+            if v.has_text() {
+                let (weak, anchor) = (Rc::downgrade(&v), v.send_button.downgrade());
+                crate::actions::menu_item(&p, &body, "Send silently or schedule…", move || {
+                    if let (Some(v), Some(anchor)) = (weak.upgrade(), anchor.upgrade()) {
+                        v.send_options_menu(anchor.upcast_ref());
+                    }
+                });
+            }
             p.popup();
         });
-        clicked!(record, |v: Rc<Self>| crate::recording::open(&v.root, *v.current_chat_id.borrow()));
         clicked!(details, |v: Rc<Self>| {
             if let Some(cb) = v.on_details.borrow().as_ref() {
                 cb();
             }
         });
-        for (b, is_video) in [(call, false), (video, true)] {
-            let weak = Rc::downgrade(&v);
-            b.connect_clicked(move |_| {
-                if let Some(v) = weak.upgrade() {
-                    if let Some(id) = *v.current_chat_id.borrow() {
-                        if let Some(cb) = v.on_start_call.borrow().as_ref() {
-                            cb(id, is_video);
-                        }
-                    }
-                }
-            });
-        }
+        clicked!(call, |v: Rc<Self>| v.start_call(false));
+        clicked!(video, |v: Rc<Self>| v.start_call(true));
         let weak = Rc::downgrade(&v);
         menu.connect_clicked(move |button| {
             if let Some(v) = weak.upgrade() {
@@ -321,25 +402,14 @@ impl ChatView {
         });
         v.root.add_controller(selection_keys);
         clicked!(search, |v: Rc<Self>| v.search_messages());
-        let weak = Rc::downgrade(&v);
-        format.connect_clicked(move |button| {
-            if let Some(v) = weak.upgrade() {
-                crate::compose::menu(button.upcast_ref(), &v.text_view);
-            }
-        });
-        clicked!(mention, |v: Rc<Self>| crate::message_tools::mention(&v));
-        let weak = Rc::downgrade(&v);
-        send_options.connect_clicked(move |button| {
-            if let Some(v) = weak.upgrade() {
-                v.send_options_menu(button.upcast_ref());
-            }
-        });
         let gesture = gtk::GestureClick::new();
         gesture.set_button(gdk::BUTTON_SECONDARY);
         let weak = Rc::downgrade(&v);
         let parent = send.downgrade();
         gesture.connect_pressed(move |gesture, _, _, _| {
-            if let (Some(v), Some(button)) = (weak.upgrade(), parent.upgrade()) {
+            if let (Some(v), Some(button)) = (weak.upgrade(), parent.upgrade())
+                && v.has_text()
+            {
                 gesture.set_state(gtk::EventSequenceState::Claimed);
                 v.send_options_menu(button.upcast_ref());
             }
@@ -396,6 +466,7 @@ impl ChatView {
         let weak = Rc::downgrade(&v);
         v.text_view.buffer().connect_changed(move |_| {
             if let Some(v) = weak.upgrade() {
+                v.update_send_button();
                 v.save_draft();
                 if let Some(id) = *v.current_chat_id.borrow() {
                     let now = std::time::Instant::now();
@@ -412,6 +483,14 @@ impl ChatView {
         v.scroll_window.vadjustment().connect_value_changed(move |a| {
             if let Some(v) = weak.upgrade() {
                 v.jump.set_visible(a.value() + a.page_size() < a.upper() - 80.0);
+            }
+        });
+        let weak = Rc::downgrade(&v);
+        v.scroll_window.connect_edge_reached(move |_, edge| {
+            if edge == gtk::PositionType::Top
+                && let Some(v) = weak.upgrade()
+            {
+                v.load_older();
             }
         });
         v.reset_account();
@@ -515,9 +594,15 @@ impl ChatView {
         self.clear_reply();
         *self.current_chat_id.borrow_mut() = Some(chat.id);
         *self.current_chat.borrow_mut() = Some(chat.clone());
-        self.title_label.set_text(&chat.title);
+        self.pages.set_visible_child_name("chat");
+        self.title_label.set_text(&crate::chat_list::display_title(chat));
+        self.placeholder.set_text(&format!("Message {}", crate::chat_list::display_title(chat)));
         self.update_avatar(chat);
+        self.members.set((0, 0));
+        self.pinned_id.set(None);
+        self.pinned_button.set_visible(false);
         self.apply_chat_status(chat);
+        self.load_details(chat);
         self.clear_messages();
         self.has_more.set(true);
         self.loading.set(false);
@@ -549,7 +634,7 @@ impl ChatView {
         while let Some(c) = self.avatar_box.first_child() {
             self.avatar_box.remove(&c);
         }
-        self.avatar_box.append(&crate::chat_list::build_avatar_widget(chat, 32));
+        self.avatar_box.append(&crate::chat_list::build_avatar_widget(chat, 36));
     }
     pub fn clear_messages(&self) {
         self.clear_selection();
@@ -564,14 +649,31 @@ impl ChatView {
         let adj = self.scroll_window.vadjustment();
         let old_height = adj.upper();
         let old_value = adj.value();
+        let mut added = 0;
         for m in messages {
             if !self.messages.borrow().contains_key(&m.id) {
                 self.append_message(m);
+                added += 1;
             }
         }
         self.loading.set(false);
         self.has_more.set(!messages.is_empty());
-        self.older.set_visible(self.has_more.get());
+        self.older.set_visible(false);
+        // Older messages load as you scroll up; until there's enough to scroll, keep loading.
+        if added > 0 {
+            let weak = Rc::downgrade(self);
+            let revision = self.history_revision.get();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+                if let Some(v) = weak.upgrade()
+                    && v.history_revision.get() == revision
+                {
+                    let a = v.scroll_window.vadjustment();
+                    if a.upper() <= a.page_size() + 1.0 {
+                        v.load_older();
+                    }
+                }
+            });
+        }
         let status =
             if self.messages.borrow().is_empty() { "No messages yet".to_owned() } else { self.default_status.borrow().clone() };
         self.status_label.set_text(&status);
@@ -646,6 +748,7 @@ impl ChatView {
         for album in albums {
             self.rebuild_album(album);
         }
+        self.queue_day_marks();
         if self.reply_id.get().is_some_and(|id| ids.contains(&id)) {
             self.clear_reply();
         }
@@ -677,6 +780,7 @@ impl ChatView {
             .map(|m| m.id);
         let prev = previous.and_then(|id| self.rows.borrow().get(&id).cloned());
         let row = w::vbox(4);
+        row.set_widget_name(&format!("album-{}", first.id));
         row.set_halign(if first.is_outgoing { gtk::Align::End } else { gtk::Align::Start });
         let grid = gtk::FlowBox::new();
         grid.set_selection_mode(gtk::SelectionMode::None);
@@ -716,10 +820,22 @@ impl ChatView {
         let bubble = w::vbox(5);
         bubble.add_css_class("message-bubble");
         bubble.add_css_class(if m.is_outgoing { "outgoing" } else { "incoming" });
+        let group = self.current_chat.borrow().as_ref().is_some_and(|c| matches!(c.chat_type, ChatType::BasicGroup | ChatType::Supergroup));
+        if group && !m.is_outgoing {
+            let face = crate::chat_list::avatar(&m.sender_name, None, 32);
+            face.set_valign(gtk::Align::End);
+            face.add_css_class("message-sender-avatar");
+            row.append(&face);
+        }
         if !m.is_outgoing && !m.sender_name.is_empty() {
             let header=w::hbox(6);
             let l = w::label(&m.sender_name, "message-sender-name");
             l.set_xalign(0.0);l.set_ellipsize(gtk::pango::EllipsizeMode::End);l.set_max_width_chars(32);l.set_hexpand(true);
+            if group {
+                nyx_ui::sidebar::set_section(&l, &crate::chat_list::avatar_swatch(&m.sender_name));
+            } else {
+                l.add_css_class("section-accent");
+            }
             header.append(&l);
             if let Some(tag)=m.data["sender_tag"].as_str().filter(|tag|!tag.is_empty()){
                 let label=w::label(tag,"dim");label.set_max_width_chars(16);label.set_ellipsize(gtk::pango::EllipsizeMode::End);header.append(&label);
@@ -769,6 +885,17 @@ impl ChatView {
                     };
                     let height = ((width as f64 * tex.height() as f64 / tex.width().max(1) as f64) as i32).clamp(32, 300);
                     pic.set_size_request(width, height);
+                    pic.add_css_class("message-picture");
+                    pic.set_cursor_from_name(Some("pointer"));
+                    pic.set_tooltip_text(Some("Open"));
+                    let click = gtk::GestureClick::new();
+                    let (weak, msg) = (Rc::downgrade(self), m.clone());
+                    click.connect_released(move |_, _, _, _| {
+                        if let Some(v) = weak.upgrade() {
+                            v.open_media(&msg);
+                        }
+                    });
+                    pic.add_controller(click);
                     bubble.append(&pic);
                     rendered = true;
                 }
@@ -804,22 +931,26 @@ impl ChatView {
                     }
                 }
             }
-            let b = gtk::Button::with_label(if matches!(m.content, MessageContent::Photo { .. }) {
-                if rendered { "Open photo" } else { "↓ Load photo" }
-            } else if matches!(m.content, MessageContent::Sticker { .. }) {
-                if rendered { "Open sticker" } else { "↓ Load sticker" }
-            } else {
-                "▶ Play video / animation"
-            });
-            b.add_css_class("flat");
-            let weak = Rc::downgrade(self);
-            let msg = m.clone();
-            b.connect_clicked(move |_| {
-                if let Some(v) = weak.upgrade() {
-                    v.open_media(&msg);
-                }
-            });
-            bubble.append(&b);
+            let still = rendered && !matches!(m.content, MessageContent::Video { .. }) && m.data["content"]["@type"] != "messageAnimation";
+            if !still {
+                let b = gtk::Button::with_label(if matches!(m.content, MessageContent::Photo { .. }) {
+                    "Load photo"
+                } else if matches!(m.content, MessageContent::Sticker { .. }) {
+                    "Load sticker"
+                } else {
+                    "▶ Play"
+                });
+                b.add_css_class("message-file-action");
+                b.set_halign(gtk::Align::Start);
+                let weak = Rc::downgrade(self);
+                let msg = m.clone();
+                b.connect_clicked(move |_| {
+                    if let Some(v) = weak.upgrade() {
+                        v.open_media(&msg);
+                    }
+                });
+                bubble.append(&b);
+            }
         }
         match &m.content {
             MessageContent::Text(t) => {
@@ -843,32 +974,11 @@ impl ChatView {
                     bubble.append(&w::label(emoji, "message-text"));
                 }
             }
-            MessageContent::Document { file_name, file_size, .. } => {
-                let label = w::label(&format!("{} · {:.1} KB", file_name, *file_size as f64 / 1024.0), "message-text");
-                label.set_max_width_chars(32);
-                label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-                bubble.append(&label);
-                let b = gtk::Button::with_label("Download / Open");
-                let weak = Rc::downgrade(self);
-                let msg = m.clone();
-                b.connect_clicked(move |_| {
-                    if let Some(v) = weak.upgrade() {
-                        v.open_media(&msg);
-                    }
-                });
-                bubble.append(&b);
+            MessageContent::Document { file_name, mime_type, file_size, .. } => {
+                bubble.append(&self.document_card(m, file_name, mime_type, *file_size));
             }
             MessageContent::VoiceNote { duration_seconds, .. } => {
-                let b =
-                    gtk::Button::with_label(&format!("▶ Voice message · {}:{:02}", duration_seconds / 60, duration_seconds % 60));
-                let weak = Rc::downgrade(self);
-                let msg = m.clone();
-                b.connect_clicked(move |_| {
-                    if let Some(v) = weak.upgrade() {
-                        v.open_media(&msg);
-                    }
-                });
-                bubble.append(&b);
+                bubble.append(&self.voice_note(m, *duration_seconds));
             }
             MessageContent::Call { duration_seconds, is_video, discard_reason } => bubble.append(&w::label(
                 &format!(
@@ -918,13 +1028,15 @@ impl ChatView {
             let b=gtk::Button::with_label(&format!("{} · {count}",if m.data["is_channel_post"]==true{"Comments"}else{"Replies"}));
             let message=m.clone(); b.connect_clicked(move |_|crate::topics::thread(message.chat_id,message.id)); bubble.append(&b);
         }
-        for f in &m.files {
+        let carded = matches!(m.content, MessageContent::Document { .. } | MessageContent::VoiceNote { .. }) || (is_visual && path.is_some());
+        for f in m.files.iter().filter(|_| !carded) {
             if f.path.is_none() {
                 let p = gtk::ProgressBar::new();
                 p.set_fraction(if f.size > 0 { (f.downloaded as f64 / f.size as f64).clamp(0.0, 1.0) } else { 0.0 });
                 bubble.append(&p);
-                let b = gtk::Button::with_label(if f.active { "Cancel download" } else { "Download / Retry" });
-                b.add_css_class("flat");
+                let b = gtk::Button::with_label(if f.active { "Cancel download" } else { "Download" });
+                b.add_css_class("message-file-action");
+                b.set_halign(gtk::Align::Start);
                 let (id, active) = (f.id, f.active);
                 b.connect_clicked(move |_| {
                     crate::window::with_service(|s| {
@@ -950,20 +1062,24 @@ impl ChatView {
                 }
             }
         }
-        let date = chrono::DateTime::from_timestamp(m.date, 0)
-            .map(|d| d.with_timezone(&chrono::Local).format("%b %-d · %H:%M").to_string())
-            .unwrap_or_default();
-        let status = if let Some(state) = &m.sending_state {
-            if state.contains("Failed") { "Failed — retry" } else { "Sending…" }
+        let local = chrono::DateTime::from_timestamp(m.date, 0).map(|d| d.with_timezone(&chrono::Local));
+        let time = local.map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
+        let read = m.is_outgoing
+            && self.current_chat.borrow().as_ref().and_then(|c| c.data["last_read_outbox_message_id"].as_i64()).unwrap_or(0) >= m.id;
+        let (status, said) = if let Some(state) = &m.sending_state {
+            if state.contains("Failed") { ("Failed — retry", "Failed") } else { ("Sending…", "Sending") }
         } else if m.is_outgoing {
-            let read =
-                self.current_chat.borrow().as_ref().and_then(|c| c.data["last_read_outbox_message_id"].as_i64()).unwrap_or(0);
-            if read >= m.id { "✓✓ Read" } else { "✓ Sent" }
+            if read { ("✓✓", "Read") } else { ("✓", "Sent") }
         } else {
-            ""
+            ("", "")
         };
-        let footer = w::label(&format!("{date} {} {status}", if m.edit_date > 0 { "edited" } else { "" }), "message-time");
-        footer.set_tooltip_text(m.sending_state.as_deref());
+        let edited = if m.edit_date > 0 { "edited " } else { "" };
+        let footer = w::label(format!("{edited}{time} {status}").trim_end(), "message-time");
+        if read {
+            footer.add_css_class("read");
+        }
+        let full = local.map(|d| d.format("%A %-d %B %Y, %H:%M").to_string()).unwrap_or_default();
+        footer.set_tooltip_text(Some(&[full.as_str(), said].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ")));
         footer.set_xalign(1.0);
         bubble.append(&footer);
         if m.sending_state.as_ref().is_some_and(|s| s.contains("Failed")) {
@@ -1051,7 +1167,52 @@ impl ChatView {
             row.add_css_class("selected-message");
         }
         row.append(&bubble);
+        self.queue_day_marks();
         row
+    }
+
+    fn queue_day_marks(&self) {
+        if self.day_marks_pending.replace(true) {
+            return;
+        }
+        let weak = self.self_weak.borrow().clone();
+        glib::idle_add_local_once(move || {
+            if let Some(v) = weak.upgrade() {
+                v.day_marks_pending.set(false);
+                v.refresh_day_marks();
+            }
+        });
+    }
+
+    /// A "Today", "Yesterday" or date pill before the first message of each day.
+    fn refresh_day_marks(&self) {
+        let messages = self.messages.borrow();
+        let mut child = self.message_list.first_child();
+        let mut last_day = None;
+        let mut previous: Option<gtk::Widget> = None;
+        while let Some(c) = child {
+            child = c.next_sibling();
+            if c.has_css_class("day-mark") {
+                self.message_list.remove(&c);
+                continue;
+            }
+            let name = c.widget_name();
+            let id = name.strip_prefix("message-").or_else(|| name.strip_prefix("album-")).and_then(|s| s.parse::<i64>().ok());
+            let day = id
+                .and_then(|id| messages.get(&id))
+                .and_then(|m| chrono::DateTime::from_timestamp(m.date, 0))
+                .map(|d| d.with_timezone(&chrono::Local).date_naive());
+            if let Some(day) = day
+                && last_day != Some(day)
+            {
+                let mark = w::label(&day_title(day), "date-separator");
+                mark.add_css_class("day-mark");
+                mark.set_halign(gtk::Align::Center);
+                self.message_list.insert_child_after(&mark, previous.as_ref());
+                last_day = Some(day);
+            }
+            previous = Some(c);
+        }
     }
     fn append_rich(&self, b: &gtk::Box, t: &FormattedText) {
         if t.text.is_empty() {
@@ -1507,7 +1668,7 @@ impl ChatView {
             }
         }
         *self.current_chat.borrow_mut() = Some(chat.clone());
-        self.title_label.set_text(&chat.title);
+        self.title_label.set_text(&crate::chat_list::display_title(chat));
         self.update_avatar(chat);
         self.apply_chat_status(chat);
         if old != chat.data["last_read_outbox_message_id"].as_i64() {
@@ -1544,12 +1705,154 @@ impl ChatView {
             self.avatar_box.remove(&child);
         }
         self.composer.set_sensitive(false);
-        self.sender_button.set_visible(false);
-        self.call_button.set_sensitive(false);
-        self.video_button.set_sensitive(false);
+        self.call_button.set_visible(false);
+        self.video_button.set_visible(false);
+        self.pinned_button.set_visible(false);
+        self.pinned_id.set(None);
+        self.members.set((0, 0));
+        self.details_revision.set(self.details_revision.get().wrapping_add(1));
+        self.pages.set_visible_child_name("empty");
         self.loading.set(false);
         self.older.set_visible(false);
         self.jump.set_visible(false);
+    }
+}
+
+impl ChatView {
+    /// A file: an accent square, its name and size, and one action — Download,
+    /// Cancel while it downloads, Open once it's here.
+    fn document_card(self: &Rc<Self>, m: &MessageSummary, name: &str, mime: &str, size: i64) -> gtk::Box {
+        let card = w::hbox(10);
+        card.add_css_class("message-document-card");
+        let icon = gtk::Image::from_icon_name("x-office-document-symbolic");
+        icon.add_css_class("message-document-icon");
+        icon.set_valign(gtk::Align::Center);
+        card.append(&icon);
+        let text = w::vbox(1);
+        text.set_hexpand(true);
+        text.set_valign(gtk::Align::Center);
+        let title = w::label(name, "message-media-title");
+        title.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        title.set_max_width_chars(28);
+        title.set_tooltip_text(Some(name));
+        text.append(&title);
+        let kind = name.rsplit_once('.').map(|(_, ext)| ext.to_uppercase()).filter(|e| e.len() <= 5).unwrap_or_else(|| {
+            mime.rsplit('/').next().unwrap_or("File").to_uppercase()
+        });
+        let file = m.files.iter().find(|f| f.role == "original").or(m.files.first());
+        let sub = match file.filter(|f| f.active && f.size > 0) {
+            Some(f) => format!("{} of {} · {kind}", human_size(f.downloaded), human_size(f.size)),
+            None => format!("{} · {kind}", human_size(size)),
+        };
+        text.append(&w::label(&sub, "message-media-sub"));
+        card.append(&text);
+        let here = file.and_then(|f| f.path.as_ref()).is_some();
+        let active = file.is_some_and(|f| f.active);
+        let (label, icon) = if here {
+            ("Open", "document-open-symbolic")
+        } else if active {
+            ("Cancel", "process-stop-symbolic")
+        } else {
+            ("Download", "folder-download-symbolic")
+        };
+        let action = w::labeled_button(icon, label);
+        action.add_css_class("message-file-action");
+        action.set_valign(gtk::Align::Center);
+        let weak = Rc::downgrade(self);
+        let msg = m.clone();
+        let file_id = file.map(|f| f.id);
+        action.connect_clicked(move |_| match (active, file_id) {
+            (true, Some(id)) => {
+                crate::window::with_service(|s| {
+                    s.request("cancelDownloadFile", json!({"file_id":id,"only_if_pending":false}));
+                });
+            }
+            _ => {
+                if let Some(v) = weak.upgrade() {
+                    v.open_media(&msg);
+                }
+            }
+        });
+        card.append(&action);
+        card
+    }
+
+    /// A voice message: play, its waveform, and how long it is.
+    fn voice_note(self: &Rc<Self>, m: &MessageSummary, seconds: i32) -> gtk::Box {
+        let row = w::hbox(10);
+        row.add_css_class("message-voice");
+        let play = gtk::Button::from_icon_name("media-playback-start-symbolic");
+        play.add_css_class("message-voice-play");
+        play.set_tooltip_text(Some("Play"));
+        play.update_property(&[gtk::accessible::Property::Label("Play voice message")]);
+        let weak = Rc::downgrade(self);
+        let msg = m.clone();
+        play.connect_clicked(move |_| {
+            if let Some(v) = weak.upgrade() {
+                v.open_media(&msg);
+            }
+        });
+        row.append(&play);
+        let wave = w::hbox(2);
+        wave.add_css_class("message-waveform");
+        wave.set_valign(gtk::Align::Center);
+        let played = m.data["content"]["is_listened"] == true;
+        for level in waveform(m.data["content"]["voice_note"]["waveform"].as_str().unwrap_or(""), 28) {
+            let bar = w::hbox(0);
+            bar.add_css_class("waveform-bar");
+            if played {
+                bar.add_css_class("played");
+            }
+            bar.set_size_request(3, 3 + (level * 15.0) as i32);
+            bar.set_valign(gtk::Align::Center);
+            wave.append(&bar);
+        }
+        row.append(&wave);
+        let length = w::label(&format!("{}:{:02}", seconds / 60, seconds % 60), "message-voice-duration");
+        length.set_valign(gtk::Align::Center);
+        length.set_margin_end(36);
+        row.append(&length);
+        row
+    }
+}
+
+/// Telegram's waveform (5-bit levels, packed) as `bars` levels from 0 to 1.
+fn waveform(encoded: &str, bars: usize) -> Vec<f64> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap_or_default();
+    let count = bytes.len() * 8 / 5;
+    if count == 0 {
+        return vec![0.2; bars];
+    }
+    let level = |i: usize| {
+        let bit = i * 5;
+        let word = bytes[bit / 8] as u16 | (*bytes.get(bit / 8 + 1).unwrap_or(&0) as u16) << 8;
+        ((word >> (bit % 8)) & 31) as f64 / 31.0
+    };
+    (0..bars).map(|b| level(b * count / bars)).collect()
+}
+
+fn human_size(bytes: i64) -> String {
+    let b = bytes.max(0) as f64;
+    if b >= 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1} GB", b / 1024.0 / 1024.0 / 1024.0)
+    } else if b >= 1024.0 * 1024.0 {
+        format!("{:.1} MB", b / 1024.0 / 1024.0)
+    } else if b >= 1024.0 {
+        format!("{:.0} KB", b / 1024.0)
+    } else {
+        format!("{b:.0} B")
+    }
+}
+
+fn day_title(day: chrono::NaiveDate) -> String {
+    let today = chrono::Local::now().date_naive();
+    match (today - day).num_days() {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        2..=6 => day.format("%A").to_string(),
+        _ if day.format("%Y").to_string() == today.format("%Y").to_string() => day.format("%-d %B").to_string(),
+        _ => day.format("%-d %B %Y").to_string(),
     }
 }
 
@@ -1587,6 +1890,7 @@ mod ui_regression {
         crate::animation::check_timer_lifetime();
         crate::detail_panel::check_layout_and_refresh(&chat);
         crate::chat_list::check_chat_removal(&chat);
+        crate::places::check_places(&chat);
         view.set_chat(&chat);
         view.text_view.buffer().set_text("Preserve this draft");
         let mut second = chat.clone();
@@ -1709,30 +2013,33 @@ mod ui_regression {
 }
 
 impl ChatView {
-    fn apply_chat_status(&self, chat: &ChatSummary) {
-        self.sender_button.set_visible(matches!(chat.chat_type,ChatType::Supergroup|ChatType::Channel));
-        self.sender_button.set_label(&format!("Send as: {} ▾",chat.data["pulse_sender_name"].as_str().filter(|s|!s.is_empty()).unwrap_or("Telegram default")));
-        let status = if chat.is_secret {
-            match chat.data["pulse_secret_state"]["@type"].as_str() {
+    fn status_text(&self, chat: &ChatSummary) -> String {
+        if chat.is_secret {
+            return match chat.data["pulse_secret_state"]["@type"].as_str() {
                 Some("secretChatStateReady") => "End-to-end encrypted secret chat",
                 Some("secretChatStateClosed") => "Secret chat closed",
                 _ => "Secret chat pending",
             }
-        } else {
-            match chat.chat_type {
-                ChatType::Private => {
-                    if chat.data["pulse_user_online"] == true {
-                        "online"
-                    } else {
-                        "Telegram contact"
-                    }
-                }
-                ChatType::Channel => "Channel",
-                _ => "Group",
-            }
-        };
-        *self.default_status.borrow_mut() = status.into();
-        self.status_label.set_text(status);
+            .into();
+        }
+        if crate::chat_list::is_saved_messages(chat) {
+            return "Messages you keep for yourself".into();
+        }
+        let (members, online) = self.members.get();
+        match chat.chat_type {
+            ChatType::Private if chat.data["pulse_user_online"] == true => "online".into(),
+            ChatType::Private => "Telegram contact".into(),
+            ChatType::Channel if members > 0 => format!("{members} subscribers"),
+            ChatType::Channel => "Channel".into(),
+            _ if members > 0 && online > 1 => format!("{members} members · {online} online"),
+            _ if members > 0 => format!("{members} members"),
+            _ => "Group".into(),
+        }
+    }
+    fn apply_chat_status(&self, chat: &ChatSummary) {
+        let status = self.status_text(chat);
+        *self.default_status.borrow_mut() = status.clone();
+        self.status_label.set_text(&status);
         let can_send = chat.data["pulse_can_send"]
             .as_bool()
             .or_else(|| chat.data["permissions"]["can_send_basic_messages"].as_bool())
@@ -1747,8 +2054,173 @@ impl ChatView {
             *self.default_status.borrow_mut() =
                 "This saved draft cannot be edited here. Discard it to write a new message.".into();
         }
-        self.call_button.set_sensitive(chat.chat_type == ChatType::Private && !chat.is_secret);
-        self.video_button.set_sensitive(chat.chat_type == ChatType::Private && !chat.is_secret);
+        self.apply_call_availability(chat);
+    }
+
+    /// Calls only where they work: a person (not a bot, not yourself), or a group
+    /// or channel with a voice chat going or that you may start one in.
+    fn apply_call_availability(&self, chat: &ChatSummary) {
+        let private = chat.chat_type == ChatType::Private && !chat.is_secret;
+        let live = chat.data["video_chat"]["group_call_id"].as_i64().unwrap_or(0) != 0;
+        self.call_button.set_visible(self.callable.get() || (!private && live));
+        self.video_button.set_visible(private && self.callable.get());
+        let label = if chat.chat_type == ChatType::Private { "Call" } else { "Voice chat" };
+        self.call_label.set_text(label);
+        self.call_button.set_tooltip_text(Some(if private { "Voice call" } else if live { "Join the voice chat" } else { "Start a voice chat" }));
+        self.call_button.update_property(&[gtk::accessible::Property::Label(label)]);
+    }
+
+    fn start_call(&self, video: bool) {
+        let Some(chat) = self.current_chat.borrow().clone() else { return };
+        if chat.chat_type == ChatType::Private {
+            if let Some(cb) = self.on_start_call.borrow().as_ref() {
+                cb(chat.id, video);
+            }
+        } else {
+            crate::group_calls::open(chat.id);
+        }
+    }
+
+    /// What the header shows beyond the chat itself: the member count, the pinned
+    /// message, and whether calls work here.
+    fn load_details(self: &Rc<Self>, chat: &ChatSummary) {
+        let revision = self.details_revision.get().wrapping_add(1);
+        self.details_revision.set(revision);
+        self.callable.set(false);
+        let Some(service) = crate::window::service() else { return };
+        let id = chat.id;
+        let still = {
+            let weak = Rc::downgrade(self);
+            move || weak.upgrade().filter(|v| v.details_revision.get() == revision && *v.current_chat_id.borrow() == Some(id))
+        };
+        self.refresh_pinned();
+        let group = chat.data["type"]["supergroup_id"].as_i64().map(|g| ("getSupergroupFullInfo", json!({"supergroup_id":g})));
+        let basic = chat.data["type"]["basic_group_id"].as_i64().map(|g| ("getBasicGroupFullInfo", json!({"basic_group_id":g})));
+        if let Some((method, args)) = group.or(basic) {
+            let rx = service.request(method, args);
+            let still = still.clone();
+            glib::spawn_future_local(async move {
+                let Ok(Ok(info)) = rx.recv().await else { return };
+                let Some(v) = still() else { return };
+                let count = info["member_count"].as_i64().or_else(|| info["members"].as_array().map(|m| m.len() as i64)).unwrap_or(0);
+                v.members.set((count, v.members.get().1));
+                v.refresh_status();
+            });
+        }
+        let me = crate::window::my_id();
+        let user = chat.data["type"]["user_id"].as_i64();
+        let rx = match (user, me) {
+            (Some(user), me) if !chat.is_secret && Some(user) != me => Some(service.request("getUser", json!({"user_id":user}))),
+            (None, Some(me)) => {
+                Some(service.request("getChatMember", json!({"chat_id":id,"member_id":{"@type":"messageSenderUser","user_id":me}})))
+            }
+            _ => None,
+        };
+        if let Some(rx) = rx {
+            glib::spawn_future_local(async move {
+                let Ok(Ok(found)) = rx.recv().await else { return };
+                let Some(v) = still() else { return };
+                let callable = match found["@type"].as_str() {
+                    Some("user") => !matches!(found["type"]["@type"].as_str(), Some("userTypeBot" | "userTypeDeleted")),
+                    _ => {
+                        let status = &found["status"];
+                        status["@type"] == "chatMemberStatusCreator"
+                            || (status["@type"] == "chatMemberStatusAdministrator" && status["rights"]["can_manage_video_chats"] == true)
+                    }
+                };
+                v.callable.set(callable);
+                let chat = v.current_chat.borrow().clone();
+                if let Some(chat) = chat {
+                    v.apply_call_availability(&chat);
+                }
+            });
+        }
+    }
+
+    pub fn refresh_pinned(self: &Rc<Self>) {
+        let Some(id) = *self.current_chat_id.borrow() else { return };
+        let Some(service) = crate::window::service() else { return };
+        let revision = self.details_revision.get();
+        let rx = service.request("getChatPinnedMessage", json!({"chat_id":id}));
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let result = rx.recv().await;
+            let Some(v) = weak.upgrade() else { return };
+            if v.details_revision.get() != revision || *v.current_chat_id.borrow() != Some(id) {
+                return;
+            }
+            let message = match result {
+                Ok(Ok(data)) => parse_message(&data),
+                _ => None,
+            };
+            v.pinned_id.set(message.as_ref().map(|m| m.id));
+            if let Some(m) = message {
+                let text = preview(&m);
+                v.pinned_text.set_text(text.lines().next().unwrap_or(""));
+                v.pinned_button.set_tooltip_text(Some(&format!("Pinned: {text}")));
+            }
+            v.fit_header();
+        });
+    }
+
+    pub fn set_online_count(&self, chat: i64, online: i64) {
+        if *self.current_chat_id.borrow() == Some(chat) {
+            self.members.set((self.members.get().0, online));
+            self.refresh_status();
+        }
+    }
+
+    fn refresh_status(&self) {
+        let Some(chat) = self.current_chat.borrow().clone() else { return };
+        let typing = self.status_label.text() == "typing…";
+        let status = self.status_text(&chat);
+        *self.default_status.borrow_mut() = status.clone();
+        if !typing {
+            self.status_label.set_text(&status);
+        }
+    }
+
+    /// Info beside the chat: the Info button shows it's on, and the pinned message
+    /// gives the header room.
+    pub fn set_info_open(&self, open: bool) {
+        self.info_open.set(open);
+        if open {
+            self.info_button.add_css_class("active");
+        } else {
+            self.info_button.remove_css_class("active");
+        }
+        self.fit_header();
+    }
+
+    /// In a narrow conversation the pinned message hides and Call keeps only its icon.
+    fn fit_header(&self) {
+        let width = self.root.width();
+        let narrow = width > 0 && width < 620;
+        self.pinned_button.set_visible(self.pinned_id.get().is_some() && !narrow && !self.info_open.get());
+        self.call_label.set_visible(!narrow);
+    }
+
+    fn has_text(&self) -> bool {
+        let buffer = self.text_view.buffer();
+        !buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).trim().is_empty()
+    }
+
+    /// The round button records a voice message until there's text, then sends it.
+    fn update_send_button(&self) {
+        let (icon, tip) = if self.has_text() {
+            ("document-send-symbolic", "Send (Enter). Right-click to send silently or schedule")
+        } else {
+            ("audio-input-microphone-symbolic", "Record a voice message")
+        };
+        self.placeholder.set_visible(!self.has_text());
+        self.send_button.set_icon_name(icon);
+        self.send_button.set_tooltip_text(Some(tip));
+        self.send_button.update_property(&[gtk::accessible::Property::Label(if self.has_text() { "Send" } else { "Record a voice message" })]);
+        if self.has_text() {
+            self.send_button.add_css_class("sending");
+        } else {
+            self.send_button.remove_css_class("sending");
+        }
     }
 }
 

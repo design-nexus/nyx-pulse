@@ -127,6 +127,9 @@ pub fn show_chat_menu(parent: &gtk::Widget, id: i64, position: Option<(f64, f64)
     let (p, body) = popover(parent, position);
     menu_item(&p, &body, "View information", move || window::show_chat_info(id));
     menu_item(&p, &body, "Search messages", move || window::search_conversation(id));
+    if crate::chat_list::is_saved_messages(&chat) {
+        menu_item(&p, &body, "Browse by source and tag…", crate::message_tools::saved);
+    }
     menu_item(&p, &body, "Bot commands / keyboard…", move || crate::bots::menu(id));
     menu_item(&p, &body, "Inline bot search…", move || crate::bots::inline(id));
     menu_item(&p, &body, "Stories…", move || crate::stories::chat_stories(id,false));

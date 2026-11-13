@@ -1,23 +1,49 @@
-//! Conversation list in the sidebar: filters, pinned chats, and conversation rows.
-
+//! The chat list between the sidebar and the conversation: the chats of the place
+//! chosen in the sidebar, matching messages while the header search has text, and
+//! recent calls under Calls.
 use gtk::gdk;
 use gtk::gio;
+use gtk::glib;
 use gtk::prelude::*;
-use nyx_telegram_core::models::{ChatId, ChatListId, ChatSummary, MessageContent};
+use nyx_telegram_core::client::parse_message;
+use nyx_telegram_core::models::{ChatId, ChatListId, ChatSummary, ChatType, MessageContent, MessageSummary};
 use nyx_ui::widgets as w;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Which chats of a list a place shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChatFilter {
     All,
     Unread,
+    Personal,
+    Groups,
+    Channels,
+}
+
+impl ChatFilter {
+    pub fn keeps(self, chat: &ChatSummary) -> bool {
+        match self {
+            ChatFilter::All => true,
+            ChatFilter::Unread => chat.unread_count > 0 || chat.is_marked_unread(),
+            ChatFilter::Personal => chat.chat_type == ChatType::Private,
+            ChatFilter::Groups => matches!(chat.chat_type, ChatType::BasicGroup | ChatType::Supergroup),
+            ChatFilter::Channels => chat.chat_type == ChatType::Channel,
+        }
+    }
+}
+
+/// A place in the sidebar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Place {
+    Chats(ChatListId, ChatFilter),
+    Saved,
+    Calls,
 }
 
 struct Inner {
-    filter: ChatFilter,
-    list: ChatListId,
+    place: Place,
     search_query: String,
     all_chats: Vec<ChatSummary>,
     active_chat_id: Option<ChatId>,
@@ -25,228 +51,141 @@ struct Inner {
     on_select: Option<Rc<dyn Fn(ChatId)>>,
 }
 
+type ChangedFn = Rc<dyn Fn()>;
+
 pub struct ChatList {
     pub root: gtk::Box,
-    pinned_group: gtk::Box,
-    pinned_box: gtk::Box,
-    chats_group: gtk::Box,
-    chats_box: gtk::Box,
-    empty_note: gtk::Label,
-    filter_all_btn: gtk::Button,
-    filter_unread_btn: gtk::Button,
-    archive_btn: gtk::Button,
-    folder_box: gtk::Box,
-    folder_buttons: RefCell<Vec<(i32, gtk::Button)>>,
+    chats_heading: gtk::Label,
+    rows: gtk::Box,
+    found_heading: gtk::Label,
+    found: gtk::Box,
+    calls: gtk::Box,
+    empty: gtk::Box,
     load_limit: Cell<i32>,
-    compact: Cell<bool>,
+    search_revision: Rc<Cell<u64>>,
+    calls_revision: Rc<Cell<u64>>,
+    changed_pending: Rc<Cell<bool>>,
+    on_changed: RefCell<Option<ChangedFn>>,
     inner: Rc<RefCell<Inner>>,
 }
 
 impl ChatList {
     pub fn new(search: &gtk::SearchEntry) -> Rc<Self> {
         let root = w::vbox(0);
-        root.add_css_class("chat-list-root");
+        root.add_css_class("chat-list-pane");
         root.set_hexpand(false);
-
-        // Quick Category / Folder navigation buttons
-        let (all_btn, _) = nav_button("mail-inbox-symbolic", "All Chats", "All active conversations");
-        let (unread_btn, _) = nav_button("mail-unread-symbolic", "Unread", "Conversations with unread messages");
-
-        all_btn.add_css_class("active");
-        root.append(&all_btn);
-        root.append(&unread_btn);
-        let (archive_btn, _) = nav_button("folder-symbolic", "Archive", "Archived conversations");
-        root.append(&archive_btn);
-        let folder_box = w::vbox(0);
-        root.append(&folder_box);
-        let (manage, _) = nav_button("folder-new-symbolic", "Manage folders", "Create, edit, reorder and share folders");
-        manage.connect_clicked(|_| crate::folders::manage());
-        root.append(&manage);
-        let (find, _) = nav_button("edit-find-symbolic", "Search messages", "Search all Telegram messages");
-        find.connect_clicked(|_| crate::message_tools::search(None));
-        root.append(&find);
-        let (saved, _) = nav_button("user-bookmarks-symbolic", "Saved Messages", "Browse Saved Messages by source and tag");
-        saved.connect_clicked(|_| crate::message_tools::saved());
-        root.append(&saved);
-
-        let (create, _) = nav_button("list-add-symbolic", "New group or channel", "Create a private group, forum or channel");
-        create.connect_clicked(|_| crate::groups::create());
-        root.append(&create);
-
-        let (tools, _) = nav_button("applications-system-symbolic", "Tools", "Account, downloads, stories, Business and more");
-        tools.connect_clicked(|_| crate::features::hub());
-        root.append(&tools);
-
-        // Pinned Group & Container
-        let pinned_group = nav_group("Pinned", false, None);
-        let pinned_box = w::vbox(1);
-        root.append(&pinned_group);
-        root.append(&pinned_box);
-
-        // Chats Group & Container
-        let chats_group = nav_group("Chats", false, None);
-        let chats_box = w::vbox(1);
-        root.append(&chats_group);
-        root.append(&chats_box);
-
-        let empty_note = w::label("No matching conversations", "dim");
-        empty_note.set_margin_top(16);
-        empty_note.set_margin_bottom(16);
-        empty_note.set_visible(false);
-        root.append(&empty_note);
+        let content = w::vbox(0);
+        content.add_css_class("chat-list");
+        let chats_heading = w::label("CHATS", "list-heading");
+        chats_heading.set_visible(false);
+        content.append(&chats_heading);
+        let rows = w::vbox(1);
+        content.append(&rows);
+        let found_heading = w::label("MESSAGES", "list-heading");
+        found_heading.set_visible(false);
+        content.append(&found_heading);
+        let found = w::vbox(1);
+        content.append(&found);
+        let calls = w::vbox(1);
+        calls.set_visible(false);
+        content.append(&calls);
+        let empty = w::vbox(0);
+        empty.set_vexpand(true);
+        content.append(&empty);
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
+            .vexpand(true)
+            .child(&content)
+            .build();
+        root.append(&scroller);
 
         let inner = Rc::new(RefCell::new(Inner {
-            filter: ChatFilter::All,
-            list: ChatListId::Main,
+            place: Place::Chats(ChatListId::Main, ChatFilter::All),
             search_query: String::new(),
             all_chats: Vec::new(),
             active_chat_id: None,
             buttons: HashMap::new(),
             on_select: None,
         }));
-
-        let list_view = Rc::new(Self {
+        let list = Rc::new(Self {
             root,
-            pinned_group,
-            pinned_box,
-            chats_group,
-            chats_box,
-            empty_note,
-            filter_all_btn: all_btn.clone(),
-            filter_unread_btn: unread_btn.clone(),
-            archive_btn: archive_btn.clone(),
-            folder_box,
-            folder_buttons: RefCell::new(vec![(-1, manage), (-2, find), (-3, saved), (-4, create), (-5, tools)]),
+            chats_heading,
+            rows,
+            found_heading,
+            found,
+            calls,
+            empty,
             load_limit: Cell::new(50),
-            compact: Cell::new(false),
+            search_revision: Default::default(),
+            calls_revision: Default::default(),
+            changed_pending: Default::default(),
+            on_changed: RefCell::new(None),
             inner,
         });
-
-        // Filter button handlers
-        {
-            let lv = list_view.clone();
-            all_btn.connect_clicked(move |b| {
-                for (_, button) in lv.folder_buttons.borrow().iter() {
-                    button.remove_css_class("active");
-                }
-                lv.archive_btn.remove_css_class("active");
-                lv.inner.borrow_mut().list = ChatListId::Main;
-                lv.filter_all_btn.add_css_class("active");
-                lv.filter_unread_btn.remove_css_class("active");
-                lv.inner.borrow_mut().filter = ChatFilter::All;
-                lv.rebuild_list();
-                b.grab_focus();
-            });
-        }
-        {
-            let lv = list_view.clone();
-            unread_btn.connect_clicked(move |b| {
-                for (_, button) in lv.folder_buttons.borrow().iter() {
-                    button.remove_css_class("active");
-                }
-                lv.archive_btn.remove_css_class("active");
-                lv.inner.borrow_mut().list = ChatListId::Main;
-                lv.filter_unread_btn.add_css_class("active");
-                lv.filter_all_btn.remove_css_class("active");
-                lv.inner.borrow_mut().filter = ChatFilter::Unread;
-                lv.rebuild_list();
-                b.grab_focus();
-            });
-        }
-
-        {
-            let lv = list_view.clone();
-            archive_btn.connect_clicked(move |_| {
-                for (_, button) in lv.folder_buttons.borrow().iter() {
-                    button.remove_css_class("active");
-                }
-                lv.inner.borrow_mut().list = ChatListId::Archive;
-                lv.inner.borrow_mut().filter = ChatFilter::All;
-                lv.filter_all_btn.remove_css_class("active");
-                lv.filter_unread_btn.remove_css_class("active");
-                lv.archive_btn.add_css_class("active");
-                lv.rebuild_list();
-                crate::window::with_service(|s| s.load_chat_list(ChatListId::Archive, lv.load_limit.get()));
-            });
-        }
-        let more = w::bar_button("view-more-symbolic", "Load more chats");
-        more.add_css_class("flat");
-        more.set_tooltip_text(Some("Load more conversations from this list"));
-        let weak = Rc::downgrade(&list_view);
-        more.connect_clicked(move |_| {
-            if let Some(list) = weak.upgrade() {
-                let limit = list.load_limit.get().saturating_add(50);
-                list.load_limit.set(limit);
-                crate::window::with_service(|s| s.load_chat_list(list.current_list(), limit));
+        let weak = Rc::downgrade(&list);
+        scroller.connect_edge_reached(move |_, edge| {
+            if edge == gtk::PositionType::Bottom
+                && let Some(list) = weak.upgrade()
+            {
+                list.load_more();
             }
         });
-        list_view.root.append(&more);
-
-        // Live search filtering
-        {
-            let lv = list_view.clone();
-            search.connect_search_changed(move |entry| {
-                lv.inner.borrow_mut().search_query = entry.text().trim().to_lowercase();
-                lv.rebuild_list();
-            });
-        }
-
-        list_view
+        let weak = Rc::downgrade(&list);
+        search.connect_search_changed(move |entry| {
+            if let Some(list) = weak.upgrade() {
+                list.inner.borrow_mut().search_query = entry.text().trim().to_lowercase();
+                list.rebuild_list();
+                list.search_messages(entry.text().trim().to_string());
+            }
+        });
+        list.rebuild_list();
+        list
     }
 
-    pub fn refresh_folder_labels(&self, infos: &[serde_json::Value]) {
-        for (id, button) in self.folder_buttons.borrow().iter() {
-            if let Some(info) = infos.iter().find(|v| v["id"].as_i64() == Some(*id as i64)) {
-                if let Some(label) =
-                    button.child().and_downcast::<gtk::Box>().and_then(|b| b.last_child()).and_downcast::<gtk::Label>()
-                {
-                    label.set_text(&crate::folders::title(info));
-                }
-            }
-        }
+    /// Called (once per main-loop turn) whenever the chats or their counts change.
+    pub fn connect_changed(&self, f: impl Fn() + 'static) {
+        *self.on_changed.borrow_mut() = Some(Rc::new(f));
     }
-    pub fn set_folders(self: &Rc<Self>, infos: &[serde_json::Value]) {
-        while let Some(child) = self.folder_box.first_child() {
-            self.folder_box.remove(&child);
+
+    fn changed(&self) {
+        if self.changed_pending.replace(true) {
+            return;
         }
-        self.folder_buttons.borrow_mut().retain(|(id, _)| *id < 0);
-        let active = self.current_list();
-        if let ChatListId::Folder(id) = active {
-            if !infos.iter().any(|i| i["id"].as_i64() == Some(id as i64)) {
-                self.inner.borrow_mut().list = ChatListId::Main;
-                self.filter_all_btn.add_css_class("active");
+        let f = self.on_changed.borrow().clone();
+        let pending = self.changed_pending.clone();
+        glib::idle_add_local_once(move || {
+            pending.set(false);
+            if let Some(f) = f {
+                f();
             }
-        }
-        for info in infos {
-            let Some(id) = info["id"].as_i64().map(|id| id as i32) else { continue };
-            let (button, _) = nav_button("folder-symbolic", &crate::folders::title(info), &crate::folders::name(info));
-            if self.current_list() == ChatListId::Folder(id) {
-                button.add_css_class("active");
-            }
-            let weak = Rc::downgrade(self);
-            button.connect_clicked(move |_| {
-                if let Some(list) = weak.upgrade() {
-                    list.inner.borrow_mut().list = ChatListId::Folder(id);
-                    list.inner.borrow_mut().filter = ChatFilter::All;
-                    for button in [&list.filter_all_btn, &list.filter_unread_btn, &list.archive_btn] {
-                        button.remove_css_class("active");
-                    }
-                    for (other, button) in list.folder_buttons.borrow().iter() {
-                        if *other == id {
-                            button.add_css_class("active");
-                        } else {
-                            button.remove_css_class("active");
-                        }
-                    }
-                    list.rebuild_list();
-                    crate::window::with_service(|s| s.load_chat_list(ChatListId::Folder(id), list.load_limit.get()));
-                }
-            });
-            self.folder_box.append(&button);
-            self.folder_buttons.borrow_mut().push((id, button));
-        }
+        });
+    }
+
+    pub fn set_place(&self, place: Place) {
+        self.inner.borrow_mut().place = place;
+        self.load_limit.set(50);
         self.rebuild_list();
-        self.set_compact(self.compact.get());
+        match place {
+            Place::Chats(ChatListId::Main, _) => {}
+            Place::Chats(list, _) => crate::window::with_service(|s| s.load_chat_list(list, self.load_limit.get())),
+            Place::Saved => crate::window::open_saved_messages(),
+            Place::Calls => self.load_calls(),
+        }
+    }
+
+    pub fn place(&self) -> Place {
+        self.inner.borrow().place
+    }
+
+    fn load_more(&self) {
+        if self.place() == Place::Calls {
+            return;
+        }
+        let limit = self.load_limit.get().saturating_add(50).min(10000);
+        self.load_limit.set(limit);
+        let list = self.current_list();
+        crate::window::with_service(|s| s.load_chat_list(list, limit));
     }
 
     /// Sets the callback invoked when a conversation is selected.
@@ -254,30 +193,26 @@ impl ChatList {
         self.inner.borrow_mut().on_select = Some(Rc::new(callback));
     }
 
-    /// Retrieves a chat summary by ID if present.
     pub fn get_chat(&self, chat_id: ChatId) -> Option<ChatSummary> {
         self.inner.borrow().all_chats.iter().find(|c| c.id == chat_id).cloned()
     }
 
-    /// Retrieves all cached chat summaries.
     pub fn reset(&self) {
-        self.inner.borrow_mut().active_chat_id = None;
-        self.inner.borrow_mut().all_chats.clear();
-        self.load_limit.set(50);
-        self.inner.borrow_mut().list = ChatListId::Main;
-        self.inner.borrow_mut().filter = ChatFilter::All;
-        while let Some(child) = self.folder_box.first_child() {
-            self.folder_box.remove(&child);
+        {
+            let mut inner = self.inner.borrow_mut();
+            inner.active_chat_id = None;
+            inner.all_chats.clear();
+            inner.place = Place::Chats(ChatListId::Main, ChatFilter::All);
         }
-        self.folder_buttons.borrow_mut().retain(|(id, _)| *id < 0);
+        self.load_limit.set(50);
         self.rebuild_list();
+        self.changed();
     }
 
     pub fn get_all_chats(&self) -> Vec<ChatSummary> {
         self.inner.borrow().all_chats.clone()
     }
 
-    /// Selects a conversation by ID.
     pub fn select_chat(&self, chat_id: ChatId) {
         Self::do_select_chat(&self.inner, chat_id);
     }
@@ -300,16 +235,21 @@ impl ChatList {
         }
     }
 
-    /// Populates the conversation list.
+    /// The Telegram list the place shows (Main for Saved messages and Calls).
     pub fn current_list(&self) -> ChatListId {
-        self.inner.borrow().list
+        match self.inner.borrow().place {
+            Place::Chats(list, _) => list,
+            _ => ChatListId::Main,
+        }
     }
+
     pub fn clear_selection(&self) {
         self.inner.borrow_mut().active_chat_id = None;
         for button in self.inner.borrow().buttons.values() {
             button.remove_css_class("active");
         }
     }
+
     pub fn update_chats(&self, chats: &[ChatSummary]) {
         {
             let mut inner = self.inner.borrow_mut();
@@ -322,13 +262,18 @@ impl ChatList {
             }
         }
         self.rebuild_list();
+        self.changed();
         if self.inner.borrow().active_chat_id.is_none() {
             let chosen = {
                 let inner = self.inner.borrow();
+                let list = match inner.place {
+                    Place::Chats(list, _) => list,
+                    _ => ChatListId::Main,
+                };
                 inner
                     .all_chats
                     .iter()
-                    .filter(|c| c.list_position(inner.list).is_some())
+                    .filter(|c| c.list_position(list).is_some())
                     .find(|c| Some(c.id) == crate::prefs::get().last_chat_id)
                     .map(|c| c.id)
             };
@@ -337,11 +282,33 @@ impl ChatList {
             }
         }
     }
-    pub fn upsert_chat(&self, chat: &ChatSummary) {
-        let (list, query, filter, active) = {
-            let inner = self.inner.borrow();
-            (inner.list, inner.search_query.clone(), inner.filter, inner.active_chat_id)
+
+    /// Whether the current place and search show `chat`.
+    fn shows(inner: &Inner, chat: &ChatSummary) -> bool {
+        let query = &inner.search_query;
+        if !query.is_empty() {
+            let list = match inner.place {
+                Place::Chats(list, _) => list,
+                _ => ChatListId::Main,
+            };
+            return chat.list_position(list).is_some() && matches_query(chat, query);
+        }
+        match inner.place {
+            Place::Chats(list, filter) => chat.list_position(list).is_some() && filter.keeps(chat),
+            Place::Saved => is_saved_messages(chat),
+            Place::Calls => false,
+        }
+    }
+
+    fn sort_key(inner: &Inner, chat: &ChatSummary) -> u64 {
+        let list = match inner.place {
+            Place::Chats(list, _) => list,
+            _ => ChatListId::Main,
         };
+        chat.list_position(list).map(|p| p.0).unwrap_or(0)
+    }
+
+    pub fn upsert_chat(&self, chat: &ChatSummary) {
         {
             let mut inner = self.inner.borrow_mut();
             if let Some(old) = inner.all_chats.iter_mut().find(|c| c.id == chat.id) {
@@ -349,56 +316,42 @@ impl ChatList {
             } else {
                 inner.all_chats.push(chat.clone());
             }
-            inner.all_chats.sort_by_key(|c| std::cmp::Reverse(c.list_position(list).map(|p| p.0).unwrap_or(0)));
+            let keys: HashMap<ChatId, u64> = inner.all_chats.iter().map(|c| (c.id, Self::sort_key(&inner, c))).collect();
+            inner.all_chats.sort_by_key(|c| std::cmp::Reverse(keys.get(&c.id).copied().unwrap_or(0)));
         }
         let old = self.inner.borrow_mut().buttons.remove(&chat.id);
         let focused = old.as_ref().is_some_and(|b| b.has_focus());
-        if let Some(old) = old {
-            if let Some(parent) = old.parent().and_downcast::<gtk::Box>() {
-                parent.remove(&old);
-            }
+        if let Some(old) = old
+            && let Some(parent) = old.parent().and_downcast::<gtk::Box>()
+        {
+            parent.remove(&old);
         }
-        let visible = |c: &ChatSummary| {
-            c.list_position(list).is_some()
-                && if !query.is_empty() {
-                    c.title.to_lowercase().contains(&query)
-                        || c.last_message.as_ref().is_some_and(|m| match &m.content {
-                            MessageContent::Text(t) => t.text.to_lowercase().contains(&query),
-                            _ => false,
-                        })
-                } else {
-                    filter != ChatFilter::Unread || c.unread_count > 0 || c.is_marked_unread()
-                }
-        };
-        if visible(chat) {
-            let projected = chat.for_list(list).unwrap();
-            let pinned = projected.is_pinned && query.is_empty();
-            let container = if pinned { &self.pinned_box } else { &self.chats_box };
-            let preceding = {
+        let shown = Self::shows(&self.inner.borrow(), chat);
+        if shown {
+            let (projected, preceding, active) = {
                 let inner = self.inner.borrow();
-                let index = inner.all_chats.iter().position(|c| c.id == chat.id).unwrap();
-                inner.all_chats[..index]
+                let list = match inner.place {
+                    Place::Chats(list, _) => list,
+                    _ => ChatListId::Main,
+                };
+                let projected = chat.for_list(list).unwrap_or_else(|| chat.clone());
+                let index = inner.all_chats.iter().position(|c| c.id == chat.id).unwrap_or(0);
+                let preceding = inner.all_chats[..index]
                     .iter()
                     .rev()
-                    .find(|c| visible(c) && (c.list_position(list).is_some_and(|p| p.1) && query.is_empty()) == pinned)
-                    .and_then(|c| inner.buttons.get(&c.id).cloned())
+                    .find(|c| Self::shows(&inner, c))
+                    .and_then(|c| inner.buttons.get(&c.id).cloned());
+                (projected, preceding, inner.active_chat_id == Some(chat.id))
             };
-            let (button, _) = create_chat_item(&projected, active == Some(chat.id), self.compact.get());
-            let weak = Rc::downgrade(&self.inner);
-            let id = chat.id;
-            button.connect_clicked(move |_| {
-                if let Some(inner) = weak.upgrade() {
-                    Self::do_select_chat(&inner, id)
-                }
-            });
-            bind_row_actions(&button, chat.id);
-            container.insert_child_after(&button, preceding.as_ref());
+            let button = self.row_for(&projected, active);
+            self.rows.insert_child_after(&button, preceding.as_ref());
             if focused {
                 button.grab_focus();
             }
             self.inner.borrow_mut().buttons.insert(chat.id, button);
         }
-        self.set_compact(self.compact.get());
+        self.refresh_empty();
+        self.changed();
     }
 
     pub fn remove_chat(&self, id: i64) {
@@ -409,431 +362,471 @@ impl ChatList {
                 inner.active_chat_id = None;
             }
         }
-        if let Some(button) = self.inner.borrow_mut().buttons.remove(&id) {
-            if let Some(parent) = button.parent().and_downcast::<gtk::Box>() {
-                parent.remove(&button);
-            }
+        let button = self.inner.borrow_mut().buttons.remove(&id);
+        if let Some(button) = button
+            && let Some(parent) = button.parent().and_downcast::<gtk::Box>()
+        {
+            parent.remove(&button);
         }
-        self.set_compact(self.compact.get());
+        self.refresh_empty();
+        self.changed();
     }
 
-    /// Updates compact (icon-only) state across all chat list components.
-    pub fn set_compact(&self, compact: bool) {
-        self.compact.set(compact);
-        let inr = self.inner.borrow();
-        let query_empty = inr.search_query.is_empty();
-
-        let has_pinned = self.pinned_box.first_child().is_some();
-        let has_chats = self.chats_box.first_child().is_some();
-
-        if compact {
-            self.filter_all_btn.set_visible(true);
-            self.filter_unread_btn.set_visible(true);
-            self.pinned_group.set_visible(false);
-            self.chats_group.set_visible(false);
-            self.empty_note.set_visible(false);
-        } else if query_empty {
-            self.filter_all_btn.set_visible(true);
-            self.filter_unread_btn.set_visible(true);
-            self.pinned_group.set_visible(has_pinned);
-            self.chats_group.set_visible(has_chats);
-            self.empty_note.set_visible(!has_pinned && !has_chats);
-        } else {
-            self.filter_all_btn.set_visible(false);
-            self.filter_unread_btn.set_visible(false);
-            self.pinned_group.set_visible(false);
-            self.chats_group.set_visible(has_chats);
-            self.empty_note.set_visible(!has_chats);
-        }
-
-        // Update category filter buttons
-        let folder_buttons = self.folder_buttons.borrow();
-        for btn in [&self.filter_all_btn, &self.filter_unread_btn, &self.archive_btn]
-            .into_iter()
-            .chain(folder_buttons.iter().map(|(_, b)| b))
-        {
-            if let Some(content) = btn.child().and_downcast::<gtk::Box>() {
-                content.set_halign(if compact { gtk::Align::Center } else { gtk::Align::Fill });
-                content.set_spacing(if compact { 0 } else { 12 });
-                if let Some(l) = content.last_child() {
-                    l.set_visible(!compact);
-                }
+    fn row_for(&self, chat: &ChatSummary, active: bool) -> gtk::Button {
+        let button = create_chat_item(chat, active);
+        let weak = Rc::downgrade(&self.inner);
+        let id = chat.id;
+        button.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                Self::do_select_chat(&inner, id)
             }
-        }
-
-        for container in [&self.pinned_box, &self.chats_box] {
-            let mut child = container.first_child();
-            while let Some(btn_widget) = child {
-                if let Some(btn) = btn_widget.downcast_ref::<gtk::Button>() {
-                    if let Some(content) = btn.child().and_downcast::<gtk::Box>() {
-                        content.set_halign(if compact { gtk::Align::Center } else { gtk::Align::Fill });
-                        content.set_spacing(if compact { 0 } else { 10 });
-
-                        // Avatar overlay unread pip
-                        if let Some(first) = content.first_child() {
-                            if let Some(ov) = first.downcast_ref::<gtk::Overlay>() {
-                                if let Some(pip) = ov.last_child() {
-                                    if pip.has_css_class("unread-pip") {
-                                        let has_unread = btn.tooltip_text().map(|t| t.contains("unread")).unwrap_or(false);
-                                        pip.set_visible(compact && has_unread);
-                                    }
-                                }
-                            }
-                            // Info box is the next sibling of avatar
-                            if let Some(info) = first.next_sibling() {
-                                info.set_visible(!compact);
-                            }
-                        }
-                    }
-                }
-                child = btn_widget.next_sibling();
-            }
-        }
+        });
+        bind_row_actions(&button, chat.id);
+        button
     }
 
     fn rebuild_list(&self) {
-        // Clear containers
-        while let Some(child) = self.pinned_box.first_child() {
-            self.pinned_box.remove(&child);
-        }
-        while let Some(child) = self.chats_box.first_child() {
-            self.chats_box.remove(&child);
+        while let Some(child) = self.rows.first_child() {
+            self.rows.remove(&child);
         }
         self.inner.borrow_mut().buttons.clear();
-
-        let (query, current_filter, chats, active_id) = {
-            let inr = self.inner.borrow();
-            (inr.search_query.clone(), inr.filter, inr.all_chats.clone(), inr.active_chat_id)
+        let (mut chats, active_id) = {
+            let inner = self.inner.borrow();
+            let list = match inner.place {
+                Place::Chats(list, _) => list,
+                _ => ChatListId::Main,
+            };
+            let chats: Vec<ChatSummary> = inner
+                .all_chats
+                .iter()
+                .filter(|c| Self::shows(&inner, c))
+                .map(|c| c.for_list(list).unwrap_or_else(|| c.clone()))
+                .collect();
+            (chats, inner.active_chat_id)
         };
-
-        let list = self.current_list();
-        let mut chats = chats.into_iter().filter_map(|c| c.for_list(list)).collect::<Vec<_>>();
-        chats.sort_by(|a, b| b.order.cmp(&a.order));
-        let compact = self.compact.get();
-        let mut pinned_count = 0;
-        let mut normal_count = 0;
-
+        chats.sort_by_key(|c| std::cmp::Reverse(c.order));
         for chat in chats {
-            // Apply search filter
-            if !query.is_empty() {
-                let matches_title = chat.title.to_lowercase().contains(&query);
-                let matches_snippet = chat
-                    .last_message
-                    .as_ref()
-                    .map(|m| match &m.content {
-                        MessageContent::Text(t) => t.text.to_lowercase().contains(&query),
-                        _ => false,
-                    })
-                    .unwrap_or(false);
+            let button = self.row_for(&chat, active_id == Some(chat.id));
+            self.rows.append(&button);
+            self.inner.borrow_mut().buttons.insert(chat.id, button);
+        }
+        let place = self.place();
+        self.calls.set_visible(place == Place::Calls && self.inner.borrow().search_query.is_empty());
+        self.refresh_empty();
+    }
 
-                if !matches_title && !matches_snippet {
-                    continue;
+    fn refresh_empty(&self) {
+        while let Some(child) = self.empty.first_child() {
+            self.empty.remove(&child);
+        }
+        let (searching, place) = {
+            let inner = self.inner.borrow();
+            (!inner.search_query.is_empty(), inner.place)
+        };
+        let has_rows = self.rows.first_child().is_some();
+        self.chats_heading.set_visible(searching && has_rows);
+        if has_rows || self.found.first_child().is_some() || (place == Place::Calls && !searching && self.calls.first_child().is_some()) {
+            return;
+        }
+        let (icon, title, desc) = if searching {
+            ("edit-find-symbolic", "Nothing found", "No chats match. Messages that match show here as Telegram finds them.")
+        } else {
+            match place {
+                Place::Chats(ChatListId::Main, ChatFilter::All) => ("pulse-chats-symbolic", "No chats yet", "Chats appear here once Telegram has loaded them."),
+                Place::Chats(ChatListId::Main, ChatFilter::Unread) => ("mail-unread-symbolic", "All caught up", "No chats have unread messages."),
+                Place::Chats(ChatListId::Main, ChatFilter::Personal) => ("avatar-default-symbolic", "No personal chats", "Chats with one person show here."),
+                Place::Chats(ChatListId::Main, ChatFilter::Groups) => ("pulse-groups-symbolic", "No groups", "Groups you're in show here."),
+                Place::Chats(ChatListId::Main, ChatFilter::Channels) => ("pulse-channels-symbolic", "No channels", "Channels you follow show here."),
+                Place::Chats(ChatListId::Archive, _) => ("pulse-archive-symbolic", "Archive is empty", "Chats you archive wait here."),
+                Place::Chats(ChatListId::Folder(_), _) => ("folder-symbolic", "No chats in this folder", "Add chats to the folder from a chat's menu."),
+                Place::Saved => ("user-bookmarks-symbolic", "Saved messages", "Opening the chat you keep for yourself…"),
+                Place::Calls => ("call-start-symbolic", "No calls yet", "Calls you make and receive show here."),
+            }
+        };
+        let state = w::empty_state(icon, title, desc, None);
+        state.set_margin_top(48);
+        state.set_margin_start(16);
+        state.set_margin_end(16);
+        self.empty.append(&state);
+    }
+
+    /// Messages that match the header search, under the chats that do.
+    fn search_messages(&self, query: String) {
+        let revision = self.search_revision.get().wrapping_add(1);
+        self.search_revision.set(revision);
+        while let Some(child) = self.found.first_child() {
+            self.found.remove(&child);
+        }
+        self.found_heading.set_visible(false);
+        self.calls.set_visible(query.is_empty() && self.place() == Place::Calls);
+        self.refresh_empty();
+        if query.chars().count() < 2 {
+            return;
+        }
+        let Some(service) = crate::window::service() else { return };
+        let generation = service.generation.clone();
+        let found = self.found.downgrade();
+        let heading = self.found_heading.downgrade();
+        let current = self.search_revision.clone();
+        let empty = self.empty.downgrade();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+            if current.get() != revision {
+                return;
+            }
+            let rx = service.request(
+                "searchMessages",
+                serde_json::json!({"chat_list":null,"query":query,"offset":"","limit":20,"filter":null,"chat_type_filter":null,"min_date":0,"max_date":0}),
+            );
+            glib::spawn_future_local(async move {
+                let Ok(Ok(data)) = rx.recv().await else { return };
+                if current.get() != revision || !crate::window::service_is_current(&generation) {
+                    return;
+                }
+                let (Some(found), Some(heading)) = (found.upgrade(), heading.upgrade()) else { return };
+                let messages: Vec<MessageSummary> =
+                    data["messages"].as_array().into_iter().flatten().filter_map(parse_message).collect();
+                for m in &messages {
+                    found.append(&found_row(m));
+                }
+                heading.set_visible(!messages.is_empty());
+                if !messages.is_empty()
+                    && let Some(empty) = empty.upgrade()
+                {
+                    while let Some(child) = empty.first_child() {
+                        empty.remove(&child);
+                    }
+                }
+            });
+        });
+    }
+
+    fn load_calls(&self) {
+        let revision = self.calls_revision.get().wrapping_add(1);
+        self.calls_revision.set(revision);
+        while let Some(child) = self.calls.first_child() {
+            self.calls.remove(&child);
+        }
+        self.refresh_empty();
+        let Some(service) = crate::window::service() else { return };
+        let generation = service.generation.clone();
+        let rx = service.request("searchCallMessages", serde_json::json!({"offset":"","limit":50,"only_missed":false}));
+        let calls = self.calls.downgrade();
+        let empty = self.empty.downgrade();
+        let current = self.calls_revision.clone();
+        glib::spawn_future_local(async move {
+            let result = rx.recv().await;
+            if current.get() != revision || !crate::window::service_is_current(&generation) {
+                return;
+            }
+            let (Some(calls), Some(empty)) = (calls.upgrade(), empty.upgrade()) else { return };
+            let messages: Vec<MessageSummary> = match result {
+                Ok(Ok(data)) => data["messages"].as_array().into_iter().flatten().filter_map(parse_message).collect(),
+                Ok(Err(e)) => {
+                    crate::window::show_status(&e);
+                    Vec::new()
+                }
+                Err(_) => Vec::new(),
+            };
+            for m in &messages {
+                calls.append(&call_row(m));
+            }
+            if !messages.is_empty() {
+                while let Some(child) = empty.first_child() {
+                    empty.remove(&child);
                 }
             }
-
-            // Apply category filter
-            if query.is_empty() && current_filter == ChatFilter::Unread && chat.unread_count == 0 && !chat.is_marked_unread() {
-                continue;
-            }
-
-            let is_active = active_id == Some(chat.id);
-            let (btn, _) = create_chat_item(&chat, is_active, compact);
-
-            let id = chat.id;
-            let inner_clone = self.inner.clone();
-            btn.connect_clicked(move |_| {
-                Self::do_select_chat(&inner_clone, id);
-            });
-
-            bind_row_actions(&btn, chat.id);
-            self.inner.borrow_mut().buttons.insert(chat.id, btn.clone());
-
-            if chat.is_pinned && query.is_empty() {
-                self.pinned_box.append(&btn);
-                pinned_count += 1;
-            } else {
-                self.chats_box.append(&btn);
-                normal_count += 1;
-            }
-        }
-
-        // Manage filter buttons and group header visibility
-        if compact {
-            self.filter_all_btn.set_visible(true);
-            self.filter_unread_btn.set_visible(true);
-            self.pinned_group.set_visible(false);
-            self.pinned_box.set_visible(true);
-            self.chats_group.set_visible(false);
-            self.chats_box.set_visible(true);
-            self.empty_note.set_visible(false);
-        } else if !query.is_empty() {
-            self.filter_all_btn.set_visible(false);
-            self.filter_unread_btn.set_visible(false);
-            self.pinned_group.set_visible(false);
-            self.pinned_box.set_visible(false);
-            self.chats_group.set_visible(normal_count > 0);
-            self.chats_box.set_visible(normal_count > 0);
-            self.empty_note.set_visible(normal_count == 0);
-        } else {
-            self.filter_all_btn.set_visible(true);
-            self.filter_unread_btn.set_visible(true);
-            self.pinned_group.set_visible(pinned_count > 0);
-            self.pinned_box.set_visible(pinned_count > 0);
-            self.chats_group.set_visible(normal_count > 0);
-            self.chats_box.set_visible(normal_count > 0);
-            self.empty_note.set_visible(pinned_count == 0 && normal_count == 0);
-        }
-        // The first group shown in the app's accent, Chats after Pinned from the theme's [sections.pulse].
-        let chats = if self.pinned_group.is_visible() { "chats" } else { nyx_ui::sidebar::ACCENT_SECTION };
-        set_group_section(&self.pinned_group, nyx_ui::sidebar::ACCENT_SECTION);
-        set_group_section(&self.chats_group, chats);
+        });
     }
 }
 
-/// Colour a group's heading as `section`, in place of the one it had.
-fn set_group_section(group: &gtk::Box, section: &str) {
-    let class = format!("section-{section}");
-    if group.has_css_class(&class) {
-        return;
-    }
-    for w in std::iter::once(group.clone().upcast::<gtk::Widget>()).chain(group.first_child()) {
-        for old in w.css_classes() {
-            if old.starts_with("section-") {
-                w.remove_css_class(&old);
-            }
+fn matches_query(chat: &ChatSummary, query: &str) -> bool {
+    chat.title.to_lowercase().contains(query)
+        || chat.last_message.as_ref().is_some_and(|m| match &m.content {
+            MessageContent::Text(t) => t.text.to_lowercase().contains(query),
+            _ => false,
+        })
+}
+
+/// The chat you keep for yourself.
+pub fn is_saved_messages(chat: &ChatSummary) -> bool {
+    crate::window::my_id().is_some_and(|me| chat.chat_type == ChatType::Private && chat.data["type"]["user_id"].as_i64() == Some(me))
+}
+
+/// A chat's name as Pulse shows it: Saved Messages for the chat with yourself.
+pub fn display_title(chat: &ChatSummary) -> String {
+    if is_saved_messages(chat) { "Saved Messages".into() } else { chat.title.clone() }
+}
+
+fn snippet(chat: &ChatSummary) -> String {
+    let Some(m) = chat.last_message.as_ref() else { return String::new() };
+    let body = match &m.content {
+        MessageContent::Text(t) => t.text.clone(),
+        MessageContent::Photo { caption, .. } if !caption.text.is_empty() => format!("📷 {}", caption.text),
+        MessageContent::Photo { .. } => "📷 Photo".into(),
+        MessageContent::Video { .. } => "📹 Video".into(),
+        MessageContent::Document { file_name, .. } => format!("📎 {file_name}"),
+        MessageContent::VoiceNote { duration_seconds, .. } => {
+            format!("voice message · {}:{:02}", duration_seconds / 60, duration_seconds % 60)
         }
+        MessageContent::Sticker { emoji, .. } => format!("{emoji} Sticker"),
+        MessageContent::Call { is_video, .. } => if *is_video { "📹 Video call" } else { "📞 Call" }.into(),
+        _ => crate::chat_view::preview(m),
+    };
+    let body = body.lines().next().unwrap_or("").trim().to_string();
+    let group = matches!(chat.chat_type, ChatType::BasicGroup | ChatType::Supergroup);
+    match m.sender_name.split_whitespace().next() {
+        Some(first) if group && !m.is_outgoing => format!("{first}: {body}"),
+        _ => body,
     }
-    nyx_ui::sidebar::set_section(group, section);
 }
 
-pub fn nav_group(title: &str, first: bool, add: Option<(&str, Box<dyn Fn()>)>) -> gtk::Box {
-    let row = w::hbox(4);
-    row.add_css_class("nav-group");
-    row.add_css_class("compact-hide");
-    row.set_hexpand(false);
-    if first {
-        row.add_css_class("first");
-    }
-    let l = w::label(&title.to_uppercase(), "nav-group-label");
-    l.set_hexpand(true);
-    l.add_css_class("compact-hide");
-    row.append(&l);
-    if let Some((tip, f)) = add {
-        let b = w::icon_button("list-add-symbolic", tip);
-        b.add_css_class("nav-add");
-        b.add_css_class("compact-hide");
-        b.connect_clicked(move |_| f());
-        row.append(&b);
-    }
-    row
+fn row_text(top: &gtk::Box, bottom: &gtk::Box) -> gtk::Box {
+    let text = w::vbox(3);
+    text.set_hexpand(true);
+    text.set_valign(gtk::Align::Center);
+    text.append(top);
+    text.append(bottom);
+    text
 }
 
-pub fn nav_button(icon: &str, title: &str, tooltip: &str) -> (gtk::Button, gtk::Label) {
+fn create_chat_item(chat: &ChatSummary, is_active: bool) -> gtk::Button {
     let button = gtk::Button::new();
-    button.add_css_class("nav-item");
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    content.append(&gtk::Image::from_icon_name(icon));
-    let l = w::label(title, "nav-label");
-    l.set_hexpand(true);
-    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    l.add_css_class("compact-hide");
-    content.append(&l);
-    button.set_child(Some(&content));
-    button.set_tooltip_text(Some(tooltip));
-    (button, l)
-}
-
-fn create_chat_item(chat: &ChatSummary, is_active: bool, compact: bool) -> (gtk::Button, gtk::Box) {
-    let button = gtk::Button::new();
-    button.add_css_class("nav-item");
-    button.add_css_class("chat-item");
+    button.add_css_class("chat-row");
     if is_active {
         button.add_css_class("active");
     }
+    let content = w::hbox(11);
+    content.append(&build_avatar_widget(chat, 40));
 
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, if compact { 0 } else { 10 });
-    content.set_hexpand(true);
-    content.set_halign(if compact { gtk::Align::Center } else { gtk::Align::Fill });
-
-    // 32x32 Avatar circle with optional compact unread pip
-    let avatar_widget = build_avatar_widget(chat, 32);
-
-    let avatar_overlay = gtk::Overlay::new();
-    avatar_overlay.set_child(Some(&avatar_widget));
-    avatar_overlay.set_halign(gtk::Align::Center);
-    avatar_overlay.set_valign(gtk::Align::Center);
-
-    let pip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    pip.add_css_class("unread-pip");
-    pip.add_css_class("compact-show");
-    pip.set_visible(compact && (chat.unread_count > 0 || chat.is_marked_unread()));
-    pip.set_halign(gtk::Align::End);
-    pip.set_valign(gtk::Align::Start);
-    avatar_overlay.add_overlay(&pip);
-
-    content.append(&avatar_overlay);
-
-    // Info container with compact-hide
-    let info = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    info.add_css_class("compact-hide");
-    info.set_visible(!compact);
-    info.set_hexpand(true);
-    info.set_valign(gtk::Align::Center);
-
-    let top = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    let title = if chat.is_secret {
-        let l = w::label(&format!("🔒 {}", chat.title), "chat-title");
-        l.add_css_class("secret-chat");
-        l
-    } else {
-        w::label(&chat.title, "chat-title")
-    };
+    let top = w::hbox(5);
+    let name = display_title(chat);
+    let title = w::label(&if chat.is_secret { format!("🔒 {name}") } else { name.clone() }, "chat-title");
+    if chat.is_secret {
+        title.add_css_class("secret-chat");
+    }
     title.set_hexpand(true);
-    title.set_xalign(0.0);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
     top.append(&title);
+    if chat.is_muted {
+        let mute = gtk::Image::from_icon_name("notifications-disabled-symbolic");
+        mute.add_css_class("row-mark");
+        mute.set_tooltip_text(Some("Muted"));
+        top.append(&mute);
+    }
+    if let Some(m) = chat.last_message.as_ref().filter(|m| m.is_outgoing) {
+        let read = chat.data["last_read_outbox_message_id"].as_i64().unwrap_or(0) >= m.id;
+        let tick = w::label(if read { "✓✓" } else { "✓" }, "row-tick");
+        tick.set_tooltip_text(Some(if read { "Read" } else { "Sent" }));
+        top.append(&tick);
+    }
+    let time = chat.last_message.as_ref().map(|m| format_time(m.date)).unwrap_or_default();
+    top.append(&w::label(&time, "chat-time"));
 
-    let time_str = if let Some(ref m) = chat.last_message { format_time(m.date) } else { String::new() };
-    let time_lbl = w::label(&time_str, "chat-time");
-    top.append(&time_lbl);
-    info.append(&top);
-
-    let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    let snippet = chat
-        .last_message
-        .as_ref()
-        .map(|m| match &m.content {
-            MessageContent::Text(t) => t.text.clone(),
-            MessageContent::Photo { .. } => "📷 Photo".into(),
-            MessageContent::Video { .. } => "📹 Video".into(),
-            MessageContent::Document { file_name, .. } => format!("📎 {file_name}"),
-            MessageContent::VoiceNote { .. } => "🎤 Voice message".into(),
-            MessageContent::Call { is_video, .. } => {
-                if *is_video {
-                    "📹 Video call".into()
-                } else {
-                    "📞 Call".into()
-                }
-            }
-            _ => "Message".into(),
-        })
-        .unwrap_or_default();
-
-    let clean_snippet = snippet.lines().next().unwrap_or("").trim();
-    let snippet_lbl = w::label(clean_snippet, "chat-snippet");
+    let bottom = w::hbox(5);
+    let snippet_lbl = w::label(&snippet(chat), "chat-snippet");
     snippet_lbl.set_hexpand(true);
-    snippet_lbl.set_xalign(0.0);
     snippet_lbl.set_single_line_mode(true);
-    snippet_lbl.set_lines(1);
     snippet_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
     bottom.append(&snippet_lbl);
-
-    if chat.is_muted {
-        top.append(&w::label("⌁", "dim"));
+    let unread = chat.unread_count > 0 || chat.is_marked_unread();
+    if chat.is_pinned && !unread {
+        let pin = gtk::Image::from_icon_name("view-pin-symbolic");
+        pin.add_css_class("row-mark");
+        pin.set_tooltip_text(Some("Pinned"));
+        bottom.append(&pin);
     }
-    if chat.unread_count > 0 || chat.is_marked_unread() {
+    if unread {
         let badge = w::label(&if chat.unread_count > 0 { chat.unread_count.to_string() } else { "●".into() }, "unread-badge");
-        badge.set_halign(gtk::Align::End);
+        if chat.is_muted {
+            badge.add_css_class("muted");
+        }
+        badge.set_xalign(0.5);
+        badge.set_valign(gtk::Align::Center);
         bottom.append(&badge);
     }
-    info.append(&bottom);
+    let text = row_text(&top, &bottom);
     let tags = crate::folders::tags(chat);
     if !tags.is_empty() {
         let label = w::label(&tags.join(" · "), "folder-tags");
-        label.set_max_width_chars(22);
         label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        info.append(&label);
+        text.append(&label);
     }
-
-    content.append(&info);
+    content.append(&text);
     button.set_child(Some(&content));
-
-    let tooltip = if chat.unread_count > 0 || chat.is_marked_unread() {
-        format!("{} ({} unread)", chat.title, chat.unread_count)
-    } else {
-        chat.title.clone()
-    };
+    let tooltip = if unread { format!("{name} ({} unread)", chat.unread_count) } else { name };
     button.set_tooltip_text(Some(&tooltip));
+    button
+}
 
-    (button, content)
+/// A message the header search found: its chat, when, and the text.
+fn found_row(m: &MessageSummary) -> gtk::Button {
+    let button = gtk::Button::new();
+    button.add_css_class("chat-row");
+    let content = w::hbox(11);
+    let chat = crate::window::chat(m.chat_id);
+    let title = chat.as_ref().map(display_title).unwrap_or_else(|| m.sender_name.clone());
+    content.append(&match &chat {
+        Some(c) => build_avatar_widget(c, 40),
+        None => avatar(&title, None, 40),
+    });
+    let top = w::hbox(5);
+    let name = w::label(&title, "chat-title");
+    name.set_hexpand(true);
+    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    top.append(&name);
+    top.append(&w::label(&format_time(m.date), "chat-time"));
+    let bottom = w::hbox(5);
+    let text = crate::chat_view::preview(m);
+    let line = w::label(text.lines().next().unwrap_or(""), "chat-snippet");
+    line.set_hexpand(true);
+    line.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    bottom.append(&line);
+    content.append(&row_text(&top, &bottom));
+    button.set_child(Some(&content));
+    button.set_tooltip_text(Some(&format!("Open this message in {title}")));
+    let message = m.clone();
+    button.connect_clicked(move |_| crate::window::jump_message(&message));
+    button
+}
+
+/// A call: who, which way, how long, and when.
+fn call_row(m: &MessageSummary) -> gtk::Button {
+    let button = gtk::Button::new();
+    button.add_css_class("chat-row");
+    let content = w::hbox(11);
+    let chat = crate::window::chat(m.chat_id);
+    let title = chat.as_ref().map(display_title).unwrap_or_else(|| m.sender_name.clone());
+    content.append(&match &chat {
+        Some(c) => build_avatar_widget(c, 40),
+        None => avatar(&title, None, 40),
+    });
+    let top = w::hbox(5);
+    let name = w::label(&title, "chat-title");
+    name.set_hexpand(true);
+    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    top.append(&name);
+    top.append(&w::label(&format_time(m.date), "chat-time"));
+    let bottom = w::hbox(5);
+    let (duration, video, reason) = match &m.content {
+        MessageContent::Call { duration_seconds, is_video, discard_reason } => (*duration_seconds, *is_video, discard_reason.clone()),
+        _ => (0, false, String::new()),
+    };
+    let missed = !m.is_outgoing && reason.contains("Missed");
+    let (icon, what) = if missed {
+        ("call-missed-symbolic", "Missed".to_string())
+    } else if reason.contains("Declined") {
+        ("call-missed-symbolic", if m.is_outgoing { "Declined" } else { "You declined" }.to_string())
+    } else if m.is_outgoing {
+        ("call-outgoing-symbolic", "Outgoing".to_string())
+    } else {
+        ("call-incoming-symbolic", "Incoming".to_string())
+    };
+    let image = gtk::Image::from_icon_name(icon);
+    image.add_css_class("row-mark");
+    if missed {
+        image.add_css_class("missed");
+    }
+    bottom.append(&image);
+    let mut line = format!("{}{what}", if video { "Video · " } else { "" });
+    if duration > 0 {
+        line.push_str(&format!(" · {}:{:02}", duration / 60, duration % 60));
+    }
+    let label = w::label(&line, "chat-snippet");
+    if missed {
+        label.add_css_class("missed");
+    }
+    label.set_hexpand(true);
+    bottom.append(&label);
+    content.append(&row_text(&top, &bottom));
+    button.set_child(Some(&content));
+    let id = m.chat_id;
+    button.set_tooltip_text(Some(&format!("Open your chat with {title}")));
+    button.connect_clicked(move |_| crate::window::open_chat(id));
+    button
 }
 
 fn format_time(timestamp: i64) -> String {
     use chrono::{Local, TimeZone};
-    if let Some(dt) = Local.timestamp_opt(timestamp, 0).single() {
-        let now = Local::now();
-        if dt.date_naive() == now.date_naive() { dt.format("%H:%M").to_string() } else { dt.format("%b %d").to_string() }
+    let Some(dt) = Local.timestamp_opt(timestamp, 0).single() else { return String::new() };
+    let now = Local::now();
+    let days = (now.date_naive() - dt.date_naive()).num_days();
+    if days == 0 {
+        dt.format("%H:%M").to_string()
+    } else if (1..7).contains(&days) {
+        dt.format("%a").to_string()
     } else {
-        String::new()
+        dt.format("%b %-d").to_string()
     }
 }
 
-/// Constructs a circular profile picture widget (or centered fallback initials) for a chat.
+/// A chat's round picture: its photo, the bookmark for Saved Messages, or its
+/// initials on a colour picked from its name.
 pub fn build_avatar_widget(chat: &ChatSummary, size: i32) -> gtk::Widget {
-    // 1. Try loading texture from chat.avatar_path
-    if let Some(ref path) = chat.avatar_path {
-        let p = std::path::Path::new(path);
-        if p.exists() {
-            let file = gio::File::for_path(p);
-            if let Ok(texture) = gdk::Texture::from_file(&file) {
-                return build_texture_avatar(&texture, size);
-            }
-        }
+    if is_saved_messages(chat) {
+        let frame = avatar_frame(size);
+        frame.add_css_class("saved-messages-avatar");
+        let icon = gtk::Image::from_icon_name("user-bookmarks-symbolic");
+        icon.set_pixel_size((size / 2).max(12));
+        icon.set_halign(gtk::Align::Center);
+        icon.set_valign(gtk::Align::Center);
+        frame.set_child(Some(&icon));
+        return frame.upcast();
     }
-
-    // 3. Fallback letter circle with exact optical centering
-    build_initials_avatar(&chat.title, size)
+    avatar(&chat.title, chat.avatar_path.as_deref(), size)
 }
 
-fn build_texture_avatar(texture: &gdk::Texture, size: i32) -> gtk::Widget {
-    let base = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    base.set_size_request(size, size);
-    base.set_hexpand(false);
-    base.set_vexpand(false);
-
-    let pic = gtk::Picture::for_paintable(texture);
-    pic.set_content_fit(gtk::ContentFit::Cover);
-    pic.set_can_shrink(true);
-    pic.set_size_request(size, size);
-    pic.set_hexpand(false);
-    pic.set_vexpand(false);
-
-    let frame = gtk::Overlay::new();
-    frame.set_size_request(size, size);
-    frame.set_hexpand(false);
-    frame.set_vexpand(false);
-    frame.set_halign(gtk::Align::Center);
-    frame.set_valign(gtk::Align::Center);
-    frame.set_overflow(gtk::Overflow::Hidden);
-    frame.add_css_class("chat-avatar-mini");
-    frame.set_child(Some(&base));
-    frame.add_overlay(&pic);
-    frame.upcast()
-}
-
-fn build_initials_avatar(title: &str, size: i32) -> gtk::Widget {
-    let initials = title.split_whitespace().take(2).filter_map(|s| s.chars().next()).collect::<String>().to_uppercase();
-    let text = if initials.is_empty() { "T".into() } else { initials };
-
-    let frame = gtk::Overlay::new();
-    frame.set_size_request(size, size);
-    frame.set_hexpand(false);
-    frame.set_vexpand(false);
-    frame.set_halign(gtk::Align::Center);
-    frame.set_valign(gtk::Align::Center);
-    frame.set_overflow(gtk::Overflow::Hidden);
-    frame.add_css_class("chat-avatar-mini");
-
-    let lbl = w::label(&text, "chat-avatar-initials");
+/// A round picture of `size` px from `path`, or `name`'s initials.
+pub fn avatar(name: &str, path: Option<&str>, size: i32) -> gtk::Widget {
+    if let Some(path) = path.filter(|p| std::path::Path::new(p).exists())
+        && let Ok(texture) = gdk::Texture::from_file(&gio::File::for_path(path))
+    {
+        let frame = avatar_frame(size);
+        let base = w::hbox(0);
+        base.set_size_request(size, size);
+        frame.set_child(Some(&base));
+        let pic = gtk::Picture::for_paintable(&texture);
+        pic.set_content_fit(gtk::ContentFit::Cover);
+        pic.set_can_shrink(true);
+        pic.set_size_request(size, size);
+        frame.add_overlay(&pic);
+        return frame.upcast();
+    }
+    let initials = name.split_whitespace().take(2).filter_map(|s| s.chars().find(|c| c.is_alphanumeric())).collect::<String>().to_uppercase();
+    let frame = avatar_frame(size);
+    frame.add_css_class("tinted");
+    nyx_ui::sidebar::set_section(&frame, &avatar_swatch(name));
+    let lbl = w::label(if initials.is_empty() { "T" } else { &initials }, "chat-avatar-initials");
+    lbl.add_css_class(match size {
+        0..=30 => "small",
+        31..=48 => "medium",
+        _ => "large",
+    });
     lbl.set_xalign(0.5);
-    lbl.set_yalign(0.5);
     lbl.set_justify(gtk::Justification::Center);
     lbl.set_halign(gtk::Align::Center);
     lbl.set_valign(gtk::Align::Center);
     lbl.set_size_request(size, size);
     frame.set_child(Some(&lbl));
-
     frame.upcast()
+}
+
+fn avatar_frame(size: i32) -> gtk::Overlay {
+    let frame = gtk::Overlay::new();
+    frame.set_size_request(size, size);
+    frame.set_hexpand(false);
+    frame.set_vexpand(false);
+    frame.set_halign(gtk::Align::Center);
+    frame.set_valign(gtk::Align::Center);
+    frame.set_overflow(gtk::Overflow::Hidden);
+    frame.add_css_class("chat-avatar-mini");
+    frame
+}
+
+/// The same swatch for the same name, every time.
+pub fn avatar_swatch(name: &str) -> String {
+    const SWATCHES: [&str; 8] = ["blue", "violet", "green", "pink", "coral", "teal", "red", "amber"];
+    let hash = name.bytes().fold(5381u32, |h, b| h.wrapping_mul(33) ^ b as u32);
+    format!("swatch-{}", SWATCHES[hash as usize % SWATCHES.len()])
 }
 
 fn bind_row_actions(button: &gtk::Button, id: ChatId) {
@@ -844,7 +837,7 @@ fn bind_row_actions(button: &gtk::Button, id: ChatId) {
         if let Some(button) = weak.upgrade() {
             gesture.set_state(gtk::EventSequenceState::Claimed);
             button.grab_focus();
-            show_chat_menu(&button, id, Some((x, y)));
+            crate::actions::show_chat_menu(button.upcast_ref(), id, Some((x, y)));
         }
     });
     button.add_controller(click);
@@ -860,21 +853,17 @@ fn bind_row_actions(button: &gtk::Button, id: ChatId) {
             )
         {
             crate::window::request_delete_chat(id);
-            return gtk::glib::Propagation::Stop;
+            return glib::Propagation::Stop;
         }
         if key == gdk::Key::Menu || (key == gdk::Key::F10 && modifiers.contains(gdk::ModifierType::SHIFT_MASK)) {
             if let Some(button) = weak.upgrade() {
-                show_chat_menu(&button, id, None);
+                crate::actions::show_chat_menu(button.upcast_ref(), id, None);
             }
-            return gtk::glib::Propagation::Stop;
+            return glib::Propagation::Stop;
         }
-        gtk::glib::Propagation::Proceed
+        glib::Propagation::Proceed
     });
     button.add_controller(keys);
-}
-
-fn show_chat_menu(button: &gtk::Button, id: ChatId, position: Option<(f64, f64)>) {
-    crate::actions::show_chat_menu(button.upcast_ref(), id, position);
 }
 
 #[cfg(test)]
@@ -888,21 +877,24 @@ pub fn check_chat_removal(chat: &ChatSummary) {
     list.remove_chat(chat.id);
     assert!(list.inner.borrow().active_chat_id.is_none());
     assert!(list.get_all_chats().is_empty());
-    assert!(list.empty_note.is_visible());
+    assert!(list.empty.first_child().is_some(), "An empty list says why it's empty");
     chat.data["positions"] = serde_json::json!([{"list":{"@type":"chatListMain"},"order":"0","is_pinned":false},{"list":{"@type":"chatListArchive"},"order":"500","is_pinned":true}]);
     list.upsert_chat(&chat);
     assert!(list.get_chat(chat.id).is_some(), "Archive must remain in the account cache");
     assert!(list.inner.borrow().buttons.is_empty(), "Archived chat is absent from Main");
-    list.inner.borrow_mut().list = ChatListId::Archive;
+    list.inner.borrow_mut().place = Place::Chats(ChatListId::Archive, ChatFilter::All);
     list.rebuild_list();
     assert_eq!(list.inner.borrow().buttons.len(), 1);
-    assert!(list.pinned_box.first_child().is_some());
+    assert!(list.rows.first_child().is_some());
+    assert!(list.empty.first_child().is_none());
     chat.data["positions"] = serde_json::json!([{"list":{"@type":"chatListMain"},"order":600,"is_pinned":false}]);
     chat.data["is_marked_as_unread"] = serde_json::json!(true);
     list.upsert_chat(&chat);
     assert!(list.inner.borrow().buttons.is_empty(), "Unarchive removes the row from Archive");
-    list.inner.borrow_mut().list = ChatListId::Main;
-    list.inner.borrow_mut().filter = ChatFilter::Unread;
+    list.inner.borrow_mut().place = Place::Chats(ChatListId::Main, ChatFilter::Unread);
     list.rebuild_list();
     assert_eq!(list.inner.borrow().buttons.len(), 1, "Manual unread is visible even with zero unread messages");
+    list.inner.borrow_mut().place = Place::Chats(ChatListId::Main, ChatFilter::Channels);
+    list.rebuild_list();
+    assert!(list.inner.borrow().buttons.is_empty(), "A private chat is not a channel");
 }
