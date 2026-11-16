@@ -185,10 +185,11 @@ impl AuthView {
         code_actions.append(&code_submit_btn);
         code_page.append(&code_actions);
         let passkey = gtk::Button::with_label("Sign in with a security key");
-        passkey.connect_clicked(|_|crate::account_extras::login_passkey());
+        passkey.connect_clicked(|_| crate::account_extras::login_passkey());
         phone_page.append(&passkey);
         let resend = gtk::Button::with_label("Resend login code");
-        resend.connect_clicked(|_|crate::actions::request(0,"resendAuthenticationCode",serde_json::json!({"reason":null})));code_page.append(&resend);
+        resend.connect_clicked(|_| crate::actions::request(0, "resendAuthenticationCode", serde_json::json!({"reason":null})));
+        code_page.append(&resend);
 
         stack.add_named(&code_page, Some("code"));
 
@@ -221,7 +222,8 @@ impl AuthView {
         password_submit_btn.set_halign(gtk::Align::Fill);
         password_page.append(&password_submit_btn);
         let recover = gtk::Button::with_label("Forgot password? Recover by email");
-        recover.connect_clicked(|_|crate::auth_tools::recover_login()); password_page.append(&recover);
+        recover.connect_clicked(|_| crate::auth_tools::recover_login());
+        password_page.append(&recover);
 
         stack.add_named(&password_page, Some("password"));
 

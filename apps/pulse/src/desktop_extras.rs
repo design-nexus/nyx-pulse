@@ -179,4 +179,8 @@ pub fn open() {
     });
 }
 #[cfg(test)]
-pub(crate) fn check_shortcuts(){assert!(parsed("<Control>j").is_some());assert!(parsed("a").is_none());assert!(parsed("F8").is_some());}
+pub(crate) fn check_shortcuts() {
+    assert!(parsed("<Control>j").is_some());
+    assert!(parsed("a").is_none());
+    assert!(parsed("F8").is_some());
+}

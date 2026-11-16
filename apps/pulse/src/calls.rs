@@ -57,7 +57,7 @@ fn initialize(s: TelegramService, user: i64, video: bool) -> Result<Rc<Session>,
         while let Ok(e) = rx.recv().await {
             let Some(s) = weak.upgrade() else { break };
             match e {
-                EngineEvent::BroadcastTime(_)|EngineEvent::BroadcastPart(..)=>{},
+                EngineEvent::BroadcastTime(_) | EngineEvent::BroadcastPart(..) => {}
                 EngineEvent::Signal(_, bytes) => {
                     if s.id.get() != 0 {
                         s.service.request("sendCallSignalingData", json!({"call_id":s.id.get(),"data":STANDARD.encode(bytes)}));
@@ -496,4 +496,6 @@ mod video_regression {
     }
 }
 
-pub(crate) fn active() -> bool { SESSION.with(|v| v.borrow().is_some()) }
+pub(crate) fn active() -> bool {
+    SESSION.with(|v| v.borrow().is_some())
+}

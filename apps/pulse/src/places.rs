@@ -62,8 +62,7 @@ impl Places {
         }
 
         list.append(&rail_divider("swatch-violet"));
-        let folders =
-            sidebar::group_label_with_add("Folders", false, "Create, edit and share folders", crate::folders::manage);
+        let folders = sidebar::group_label_with_add("Folders", false, "Create, edit and share folders", crate::folders::manage);
         sidebar::set_section(&folders, "swatch-violet");
         list.append(&folders);
         let folder_box = w::vbox(1);

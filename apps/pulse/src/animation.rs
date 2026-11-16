@@ -69,7 +69,9 @@ pub fn still(picture: &gtk::Picture, path: &str, repaint: Option<gdk::RGBA>) -> 
     true
 }
 pub fn play(picture: &gtk::Picture, path: &str) -> bool {
-    if crate::prefs::get().reduce_motion{return still(picture,path,None)}
+    if crate::prefs::get().reduce_motion {
+        return still(picture, path, None);
+    }
     let result = open_animation(path);
     let (anim, count, fps) = match result {
         Ok(v) => v,

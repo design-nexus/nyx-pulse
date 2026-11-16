@@ -350,10 +350,10 @@ pub fn choose_member(chat: i64, callback: impl Fn(Value) + 'static) {
 pub fn mention(view: &Rc<crate::chat_view::ChatView>) {
     let Some(chat) = *view.current_chat_id.borrow() else { return };
     let weak = Rc::downgrade(view);
-    let topic=view.topic_id();
+    let topic = view.topic_id();
     choose_member(chat, move |user| {
         if let Some(view) = weak.upgrade() {
-            if *view.current_chat_id.borrow() != Some(chat) || view.topic_id()!=topic {
+            if *view.current_chat_id.borrow() != Some(chat) || view.topic_id() != topic {
                 return;
             }
             let name = format!("{} {}", user["first_name"].as_str().unwrap_or(""), user["last_name"].as_str().unwrap_or(""));
@@ -459,7 +459,7 @@ fn browser(mode: SearchMode, filter: u32) {
     let browser = Rc::new(Browser {
         scope,
         window: dialog.downgrade(),
-        topic: if let SearchMode::Chat(chat)=&mode {window::composer_topic(*chat)}else{Value::Null},
+        topic: if let SearchMode::Chat(chat) = &mode { window::composer_topic(*chat) } else { Value::Null },
         mode,
         query: query.clone(),
         filter: filters.clone(),

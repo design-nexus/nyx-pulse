@@ -85,12 +85,12 @@ impl ChatView {
         title_label.set_xalign(0.0);
         title_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         title_label.set_max_width_chars(1);
-        title_label.connect_notify_local(Some("label"),|label,_|label.set_tooltip_text(Some(&label.text())));
+        title_label.connect_notify_local(Some("label"), |label, _| label.set_tooltip_text(Some(&label.text())));
         let status_label = w::label("", "chat-header-status");
         status_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         status_label.set_xalign(0.0);
         status_label.set_max_width_chars(1);
-        status_label.connect_notify_local(Some("label"),|label,_|label.set_tooltip_text(Some(&label.text())));
+        status_label.connect_notify_local(Some("label"), |label, _| label.set_tooltip_text(Some(&label.text())));
         titles.append(&title_label);
         titles.append(&status_label);
         header.append(&titles);
@@ -131,18 +131,21 @@ impl ChatView {
         let back = gtk::Button::with_label("← All messages");
         let context_label = w::label("", "dim");
         context_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        context_label.set_hexpand(true);context_label.set_max_width_chars(1);
-        context_bar.append(&back); context_bar.append(&context_label);
-        context_bar.set_visible(false); root.append(&context_bar);
+        context_label.set_hexpand(true);
+        context_label.set_max_width_chars(1);
+        context_bar.append(&back);
+        context_bar.append(&context_label);
+        context_bar.set_visible(false);
+        root.append(&context_bar);
         let selection_bar = w::hbox(6);
         selection_bar.add_css_class("message-selection-bar");
         selection_bar.set_visible(false);
         let selection_label = w::label("Select messages", "dim");
         selection_label.set_hexpand(true);
-        let selection_forward = w::bar_button("mail-forward-symbolic","Forward selected messages");
-        let selection_copy = w::bar_button("edit-copy-symbolic","Copy selected messages");
-        let selection_delete = w::bar_button("user-trash-symbolic","Delete selected messages");
-        let selection_report = w::bar_button("dialog-warning-symbolic","Report selected messages");
+        let selection_forward = w::bar_button("mail-forward-symbolic", "Forward selected messages");
+        let selection_copy = w::bar_button("edit-copy-symbolic", "Copy selected messages");
+        let selection_delete = w::bar_button("user-trash-symbolic", "Delete selected messages");
+        let selection_report = w::bar_button("dialog-warning-symbolic", "Report selected messages");
         let selection_cancel = w::bar_button("window-close-symbolic", "Clear message selection");
         selection_bar.append(&selection_label);
         for button in [&selection_forward, &selection_copy, &selection_delete, &selection_report, &selection_cancel] {
@@ -171,7 +174,8 @@ impl ChatView {
         reply_banner.add_css_class("reply-banner");
         reply_banner.set_visible(false);
         let reply_label = w::label("", "reply-snippet");
-        reply_label.set_hexpand(true);reply_label.set_max_width_chars(1);
+        reply_label.set_hexpand(true);
+        reply_label.set_max_width_chars(1);
         reply_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         reply_banner.append(&reply_label);
         let cancel = w::bar_button("window-close-symbolic", "Cancel reply");
@@ -224,7 +228,8 @@ impl ChatView {
         let column = root;
         let pages = gtk::Stack::new();
         pages.add_named(&column, Some("chat"));
-        let empty = w::empty_state("pulse-chats-symbolic", "No chat open", "Choose a chat from the list, or start one with New.", None);
+        let empty =
+            w::empty_state("pulse-chats-symbolic", "No chat open", "Choose a chat from the list, or start one with New.", None);
         pages.add_named(&empty, Some("empty"));
         pages.set_visible_child_name("empty");
         let root = w::vbox(0);
@@ -258,7 +263,11 @@ impl ChatView {
             retired_ids: Default::default(),
             current_chat_id: Default::default(),
             current_chat: Default::default(),
-            topic: RefCell::new(Value::Null), history_revision: Cell::new(0), history_jump: Cell::new(None), context_bar, context_label,
+            topic: RefCell::new(Value::Null),
+            history_revision: Cell::new(0),
+            history_jump: Cell::new(None),
+            context_bar,
+            context_label,
             pending_scroll: Cell::new(false),
             sending: Cell::new(false),
             send_generation: Cell::new(0),
@@ -288,7 +297,7 @@ impl ChatView {
             on_details: Default::default(),
             on_media: Default::default(),
         });
-        *v.self_weak.borrow_mut()=Rc::downgrade(&v);
+        *v.self_weak.borrow_mut() = Rc::downgrade(&v);
         let weak = Rc::downgrade(&v);
         let width = Cell::new(0);
         v.root.add_tick_callback(move |root, _| {
@@ -327,7 +336,14 @@ impl ChatView {
         clicked!(cancel, |v: Rc<Self>| v.clear_reply());
         clicked!(v.jump, |v: Rc<Self>| v.scroll_to_bottom());
         let weak = Rc::downgrade(&v);
-        back.connect_clicked(move |_| { if let Some(v)=weak.upgrade() { let chat=*v.current_chat_id.borrow(); if let Some(chat)=chat{crate::window::open_chat(chat);} } });
+        back.connect_clicked(move |_| {
+            if let Some(v) = weak.upgrade() {
+                let chat = *v.current_chat_id.borrow();
+                if let Some(chat) = chat {
+                    crate::window::open_chat(chat);
+                }
+            }
+        });
         clicked!(v.older, |v: Rc<Self>| v.load_older());
         let weak = Rc::downgrade(&v);
         attach.connect_clicked(move |button| {
@@ -335,18 +351,38 @@ impl ChatView {
             let Some(chat) = *v.current_chat_id.borrow() else { return };
             let (p, body) = crate::actions::popover(button.upcast_ref(), None);
             let weak = Rc::downgrade(&v);
-            crate::actions::menu_item(&p, &body, "Photo or file…", move || { if let Some(v) = weak.upgrade() { v.choose_attachment(); } });
-            let video_view=Rc::downgrade(&v);
-            crate::actions::menu_item(&p,&body,"Video message…",move ||{if let Some(v)=video_view.upgrade(){crate::recording::open_video(&v.root,Some(chat));}});
-            crate::actions::menu_item(&p,&body,"Checklist…",move||crate::message_extras::compose_checklist(chat));
-            crate::actions::menu_item(&p,&body,"Inline bot search…",move||crate::bots::inline(chat));
+            crate::actions::menu_item(&p, &body, "Photo or file…", move || {
+                if let Some(v) = weak.upgrade() {
+                    v.choose_attachment();
+                }
+            });
+            let video_view = Rc::downgrade(&v);
+            crate::actions::menu_item(&p, &body, "Video message…", move || {
+                if let Some(v) = video_view.upgrade() {
+                    crate::recording::open_video(&v.root, Some(chat));
+                }
+            });
+            crate::actions::menu_item(&p, &body, "Checklist…", move || crate::message_extras::compose_checklist(chat));
+            crate::actions::menu_item(&p, &body, "Inline bot search…", move || crate::bots::inline(chat));
             crate::actions::menu_item(&p, &body, "Poll or quiz…", move || crate::rich_messages::compose_poll(chat));
             crate::actions::menu_item(&p, &body, "Contact…", move || crate::rich_messages::compose_contact(chat));
             crate::actions::menu_item(&p, &body, "Location…", move || crate::rich_messages::compose_location(chat));
-            let (weak,anchor)=(Rc::downgrade(&v),button.downgrade());
-            crate::actions::menu_item(&p,&body,"Format message…",move||{if let(Some(v),Some(anchor))=(weak.upgrade(),anchor.upgrade()){crate::compose::menu(anchor.upcast_ref(),&v.text_view);}});
-            let weak=Rc::downgrade(&v);crate::actions::menu_item(&p,&body,"Mention someone…",move||{if let Some(v)=weak.upgrade(){crate::message_tools::mention(&v);}});
-            let sender = v.current_chat.borrow().as_ref().filter(|c| matches!(c.chat_type, ChatType::Supergroup | ChatType::Channel)).map(|c| c.data["pulse_sender_name"].as_str().filter(|s| !s.is_empty()).unwrap_or("Telegram default").to_string());
+            let (weak, anchor) = (Rc::downgrade(&v), button.downgrade());
+            crate::actions::menu_item(&p, &body, "Format message…", move || {
+                if let (Some(v), Some(anchor)) = (weak.upgrade(), anchor.upgrade()) {
+                    crate::compose::menu(anchor.upcast_ref(), &v.text_view);
+                }
+            });
+            let weak = Rc::downgrade(&v);
+            crate::actions::menu_item(&p, &body, "Mention someone…", move || {
+                if let Some(v) = weak.upgrade() {
+                    crate::message_tools::mention(&v);
+                }
+            });
+            let sender =
+                v.current_chat.borrow().as_ref().filter(|c| matches!(c.chat_type, ChatType::Supergroup | ChatType::Channel)).map(
+                    |c| c.data["pulse_sender_name"].as_str().filter(|s| !s.is_empty()).unwrap_or("Telegram default").to_string(),
+                );
             if let Some(sender) = sender {
                 crate::actions::menu_item(&p, &body, &format!("Send as: {sender}…"), move || crate::identities::choose(chat));
             }
@@ -497,33 +533,75 @@ impl ChatView {
         v
     }
     fn draft_key(&self) -> String {
-        crate::topics::draft_key(&crate::prefs::get().active_account_id, self.current_chat_id.borrow().unwrap_or(0), &self.topic.borrow())
+        crate::topics::draft_key(
+            &crate::prefs::get().active_account_id,
+            self.current_chat_id.borrow().unwrap_or(0),
+            &self.topic.borrow(),
+        )
     }
-    pub fn topic_id(&self) -> Value { self.topic.borrow().clone() }
-    pub fn load_history(&self, from:i64) {
-        if let Some(chat)=*self.current_chat_id.borrow() {
+    pub fn topic_id(&self) -> Value {
+        self.topic.borrow().clone()
+    }
+    pub fn load_history(&self, from: i64) {
+        if let Some(chat) = *self.current_chat_id.borrow() {
             crate::window::with_service(|s| {
                 self.loading.set(true);
-                if self.detached.get(){
-                    let topic=self.topic_id();let revision=self.history_revision.get();let weak=self.self_weak.borrow().clone();let scope=crate::actions::Scope::current();
-                    let rx=s.history_request(chat,topic.clone(),from);
-                    glib::spawn_future_local(async move{if let Ok(result)=rx.recv().await{if scope.is_some_and(|s|s.valid()){if let Some(v)=weak.upgrade(){v.topic_history(chat,&topic,revision,from,result);}}}});
-                }else{s.load_topic_history(chat,self.topic_id(),self.history_revision.get(),from);}
+                if self.detached.get() {
+                    let topic = self.topic_id();
+                    let revision = self.history_revision.get();
+                    let weak = self.self_weak.borrow().clone();
+                    let scope = crate::actions::Scope::current();
+                    let rx = s.history_request(chat, topic.clone(), from);
+                    glib::spawn_future_local(async move {
+                        if let Ok(result) = rx.recv().await {
+                            if scope.is_some_and(|s| s.valid()) {
+                                if let Some(v) = weak.upgrade() {
+                                    v.topic_history(chat, &topic, revision, from, result);
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    s.load_topic_history(chat, self.topic_id(), self.history_revision.get(), from);
+                }
             });
         }
     }
-    pub fn topic_history(self:&Rc<Self>,chat:i64,topic:&Value,revision:u64,from:i64,result:Result<Vec<MessageSummary>,String>) {
-        if *self.current_chat_id.borrow()!=Some(chat)||self.topic_id()!=*topic||self.history_revision.get()!=revision{return}
+    pub fn topic_history(
+        self: &Rc<Self>,
+        chat: i64,
+        topic: &Value,
+        revision: u64,
+        from: i64,
+        result: Result<Vec<MessageSummary>, String>,
+    ) {
+        if *self.current_chat_id.borrow() != Some(chat) || self.topic_id() != *topic || self.history_revision.get() != revision {
+            return;
+        }
         match result {
-            Ok(messages)=>{
-                self.merge_history(&messages,from!=0);
-                if let Some(id)=self.history_jump.get().filter(|id|*id==from||self.rows.borrow().contains_key(id)){
+            Ok(messages) => {
+                self.merge_history(&messages, from != 0);
+                if let Some(id) = self.history_jump.get().filter(|id| *id == from || self.rows.borrow().contains_key(id)) {
                     self.history_jump.set(None);
-                    if self.rows.borrow().contains_key(&id){let weak=Rc::downgrade(self);glib::idle_add_local_once(move ||{if let Some(v)=weak.upgrade(){if v.history_revision.get()==revision{v.jump_to(id);}}});}
-                    else{self.set_error("This message is not available in the current conversation.");}
+                    if self.rows.borrow().contains_key(&id) {
+                        let weak = Rc::downgrade(self);
+                        glib::idle_add_local_once(move || {
+                            if let Some(v) = weak.upgrade() {
+                                if v.history_revision.get() == revision {
+                                    v.jump_to(id);
+                                }
+                            }
+                        });
+                    } else {
+                        self.set_error("This message is not available in the current conversation.");
+                    }
                 }
-            },
-            Err(e)=>{self.loading.set(false);self.older.set_visible(true);self.set_error(&e);}
+            }
+            Err(e) => {
+                self.loading.set(false);
+                self.older.set_visible(true);
+                self.set_error(&e);
+            }
         }
     }
     fn save_draft(&self) {
@@ -578,10 +656,13 @@ impl ChatView {
         }
         self.restoring.set(false);
     }
-    pub fn set_chat(self: &Rc<Self>, chat: &ChatSummary) { self.set_context(chat, Value::Null, ""); }
+    pub fn set_chat(self: &Rc<Self>, chat: &ChatSummary) {
+        self.set_context(chat, Value::Null, "");
+    }
     pub fn set_context(self: &Rc<Self>, chat: &ChatSummary, topic: Value, title: &str) {
         self.history_revision.set(self.history_revision.get().wrapping_add(1));
-        self.history_jump.set(None); self.pending_scroll.set(false);
+        self.history_jump.set(None);
+        self.pending_scroll.set(false);
         self.send_generation.set(self.send_generation.get() + 1);
         self.sending.set(false);
         self.save_draft();
@@ -684,7 +765,9 @@ impl ChatView {
         }
     }
     pub fn append_message(self: &Rc<Self>, m: &MessageSummary) {
-        if !crate::topics::matches_message(&self.topic.borrow(), &m.data) { return; }
+        if !crate::topics::matches_message(&self.topic.borrow(), &m.data) {
+            return;
+        }
         if m.data["scheduling_state"].is_object() {
             return;
         }
@@ -820,7 +903,11 @@ impl ChatView {
         let bubble = w::vbox(5);
         bubble.add_css_class("message-bubble");
         bubble.add_css_class(if m.is_outgoing { "outgoing" } else { "incoming" });
-        let group = self.current_chat.borrow().as_ref().is_some_and(|c| matches!(c.chat_type, ChatType::BasicGroup | ChatType::Supergroup));
+        let group = self
+            .current_chat
+            .borrow()
+            .as_ref()
+            .is_some_and(|c| matches!(c.chat_type, ChatType::BasicGroup | ChatType::Supergroup));
         if group && !m.is_outgoing {
             let face = crate::chat_list::avatar(&m.sender_name, None, 32);
             face.set_valign(gtk::Align::End);
@@ -828,21 +915,42 @@ impl ChatView {
             row.append(&face);
         }
         if !m.is_outgoing && !m.sender_name.is_empty() {
-            let header=w::hbox(6);
+            let header = w::hbox(6);
             let l = w::label(&m.sender_name, "message-sender-name");
-            l.set_xalign(0.0);l.set_ellipsize(gtk::pango::EllipsizeMode::End);l.set_max_width_chars(32);l.set_hexpand(true);
+            l.set_xalign(0.0);
+            l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            l.set_max_width_chars(32);
+            l.set_hexpand(true);
             if group {
                 nyx_ui::sidebar::set_section(&l, &crate::chat_list::avatar_swatch(&m.sender_name));
             } else {
                 l.add_css_class("section-accent");
             }
             header.append(&l);
-            if let Some(tag)=m.data["sender_tag"].as_str().filter(|tag|!tag.is_empty()){
-                let label=w::label(tag,"dim");label.set_max_width_chars(16);label.set_ellipsize(gtk::pango::EllipsizeMode::End);header.append(&label);
+            if let Some(tag) = m.data["sender_tag"].as_str().filter(|tag| !tag.is_empty()) {
+                let label = w::label(tag, "dim");
+                label.set_max_width_chars(16);
+                label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                header.append(&label);
             }
             bubble.append(&header);
         }
-        for key in ["voice_note","video_note"]{let result=&m.data["content"][key]["speech_recognition_result"];let text=match result["@type"].as_str(){Some("speechRecognitionResultText")=>result["text"].as_str(),Some("speechRecognitionResultPending")=>result["partial_text"].as_str(),Some("speechRecognitionResultError")=>result["error"]["message"].as_str(),_=>None};if let Some(text)=text.filter(|t|!t.is_empty()){let label=w::label(text,"message-transcription");label.set_wrap(true);label.set_selectable(true);label.set_max_width_chars(50);bubble.append(&label);}}
+        for key in ["voice_note", "video_note"] {
+            let result = &m.data["content"][key]["speech_recognition_result"];
+            let text = match result["@type"].as_str() {
+                Some("speechRecognitionResultText") => result["text"].as_str(),
+                Some("speechRecognitionResultPending") => result["partial_text"].as_str(),
+                Some("speechRecognitionResultError") => result["error"]["message"].as_str(),
+                _ => None,
+            };
+            if let Some(text) = text.filter(|t| !t.is_empty()) {
+                let label = w::label(text, "message-transcription");
+                label.set_wrap(true);
+                label.set_selectable(true);
+                label.set_max_width_chars(50);
+                bubble.append(&label);
+            }
+        }
         if let Some(id) = m.reply_to_message_id {
             let reply = self
                 .messages
@@ -931,7 +1039,9 @@ impl ChatView {
                     }
                 }
             }
-            let still = rendered && !matches!(m.content, MessageContent::Video { .. }) && m.data["content"]["@type"] != "messageAnimation";
+            let still = rendered
+                && !matches!(m.content, MessageContent::Video { .. })
+                && m.data["content"]["@type"] != "messageAnimation";
             if !still {
                 let b = gtk::Button::with_label(if matches!(m.content, MessageContent::Photo { .. }) {
                     "Load photo"
@@ -989,8 +1099,8 @@ impl ChatView {
                 ),
                 "message-text",
             )),
-            MessageContent::Unsupported(_) if crate::message_extras::render(&bubble,m) => {},
-            MessageContent::Unsupported(_) if crate::rich_messages::render(&bubble, m) => {},
+            MessageContent::Unsupported(_) if crate::message_extras::render(&bubble, m) => {}
+            MessageContent::Unsupported(_) if crate::rich_messages::render(&bubble, m) => {}
             MessageContent::Unsupported(_) => {
                 let content = &m.data["content"];
                 let text = match content["@type"].as_str().unwrap_or("") {
@@ -1024,11 +1134,17 @@ impl ChatView {
                 }
             }
         }
-        if let Some(count)=m.data["interaction_info"]["reply_info"]["reply_count"].as_i64() {
-            let b=gtk::Button::with_label(&format!("{} · {count}",if m.data["is_channel_post"]==true{"Comments"}else{"Replies"}));
-            let message=m.clone(); b.connect_clicked(move |_|crate::topics::thread(message.chat_id,message.id)); bubble.append(&b);
+        if let Some(count) = m.data["interaction_info"]["reply_info"]["reply_count"].as_i64() {
+            let b = gtk::Button::with_label(&format!(
+                "{} · {count}",
+                if m.data["is_channel_post"] == true { "Comments" } else { "Replies" }
+            ));
+            let message = m.clone();
+            b.connect_clicked(move |_| crate::topics::thread(message.chat_id, message.id));
+            bubble.append(&b);
         }
-        let carded = matches!(m.content, MessageContent::Document { .. } | MessageContent::VoiceNote { .. }) || (is_visual && path.is_some());
+        let carded = matches!(m.content, MessageContent::Document { .. } | MessageContent::VoiceNote { .. })
+            || (is_visual && path.is_some());
         for f in m.files.iter().filter(|_| !carded) {
             if f.path.is_none() {
                 let p = gtk::ProgressBar::new();
@@ -1050,7 +1166,7 @@ impl ChatView {
                 bubble.append(&b);
             }
         }
-        crate::bots::render(&bubble,m);
+        crate::bots::render(&bubble, m);
         for file in m.files.iter().filter(|f| f.role == "link-preview") {
             if let Some(path) = &file.path {
                 if let Ok(texture) = gdk::Texture::from_file(&gio::File::for_path(path)) {
@@ -1065,7 +1181,8 @@ impl ChatView {
         let local = chrono::DateTime::from_timestamp(m.date, 0).map(|d| d.with_timezone(&chrono::Local));
         let time = local.map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
         let read = m.is_outgoing
-            && self.current_chat.borrow().as_ref().and_then(|c| c.data["last_read_outbox_message_id"].as_i64()).unwrap_or(0) >= m.id;
+            && self.current_chat.borrow().as_ref().and_then(|c| c.data["last_read_outbox_message_id"].as_i64()).unwrap_or(0)
+                >= m.id;
         let (status, said) = if let Some(state) = &m.sending_state {
             if state.contains("Failed") { ("Failed — retry", "Failed") } else { ("Sending…", "Sending") }
         } else if m.is_outgoing {
@@ -1079,7 +1196,9 @@ impl ChatView {
             footer.add_css_class("read");
         }
         let full = local.map(|d| d.format("%A %-d %B %Y, %H:%M").to_string()).unwrap_or_default();
-        footer.set_tooltip_text(Some(&[full.as_str(), said].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ")));
+        footer.set_tooltip_text(Some(
+            &[full.as_str(), said].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "),
+        ));
         footer.set_xalign(1.0);
         bubble.append(&footer);
         if m.sending_state.as_ref().is_some_and(|s| s.contains("Failed")) {
@@ -1260,15 +1379,19 @@ impl ChatView {
         a.value() + a.page_size() >= a.upper() - 80.0
     }
     pub fn scroll_to_bottom(self: &Rc<Self>) {
-        if self.history_jump.get().is_some(){return}
+        if self.history_jump.get().is_some() {
+            return;
+        }
         if self.pending_scroll.replace(true) {
             return;
         }
         let weak = Rc::downgrade(self);
-        let revision=self.history_revision.get();
+        let revision = self.history_revision.get();
         glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
             if let Some(v) = weak.upgrade() {
-                if v.history_revision.get()!=revision{return}
+                if v.history_revision.get() != revision {
+                    return;
+                }
                 let a = v.scroll_window.vadjustment();
                 a.set_value((a.upper() - a.page_size()).max(0.0));
                 v.pending_scroll.set(false);
@@ -1282,7 +1405,8 @@ impl ChatView {
                 self.scroll_window.vadjustment().set_value(p.y() as f64);
             }
         } else {
-            self.history_jump.set(Some(id));self.load_history(id);
+            self.history_jump.set(Some(id));
+            self.load_history(id);
         }
     }
 
@@ -1354,7 +1478,7 @@ impl ChatView {
         let account = s.account.clone();
         let generation = self.send_generation.get() + 1;
         self.send_generation.set(generation);
-        let keyboard=self.current_chat.borrow().as_ref().and_then(|c|c.data["reply_markup_message_id"].as_i64()).unwrap_or(0);
+        let keyboard = self.current_chat.borrow().as_ref().and_then(|c| c.data["reply_markup_message_id"].as_i64()).unwrap_or(0);
         let rx = s.request("sendMessage", req);
         let weak = Rc::downgrade(self);
         let key = self.draft_key();
@@ -1371,7 +1495,8 @@ impl ChatView {
             }
             let active = crate::prefs::get().active_account_id == account
                 && crate::window::service_is_current(&session)
-                && *v.current_chat_id.borrow() == Some(chat) && v.topic_id() == topic;
+                && *v.current_chat_id.borrow() == Some(chat)
+                && v.topic_id() == topic;
             match res {
                 Ok(Ok(data)) => {
                     if is_text {
@@ -1384,7 +1509,9 @@ impl ChatView {
                         });
                     }
                     if active {
-                        if keyboard!=0{crate::bots::consume_keyboard(chat,keyboard);}
+                        if keyboard != 0 {
+                            crate::bots::consume_keyboard(chat, keyboard);
+                        }
                         if let Some(m) = parse_message(&data) {
                             v.append_message(&m);
                         }
@@ -1439,7 +1566,10 @@ impl ChatView {
                 if let Ok(value) = clipboard.read_value_future(gdk::FileList::static_type(), glib::Priority::DEFAULT).await {
                     if let Ok(files) = value.get::<gdk::FileList>() {
                         if let Some(v) = weak.upgrade() {
-                            if *v.current_chat_id.borrow() == chat && v.topic_id()==topic && crate::prefs::get().active_account_id == account {
+                            if *v.current_chat_id.borrow() == chat
+                                && v.topic_id() == topic
+                                && crate::prefs::get().active_account_id == account
+                            {
                                 for f in files.files() {
                                     if let Some(path) = f.path() {
                                         v.attach(path);
@@ -1453,7 +1583,10 @@ impl ChatView {
                 let path = nyx_core::paths::cache_dir().join(format!("paste-{}.png", uuid::Uuid::new_v4()));
                 if texture.save_to_png(&path).is_ok() {
                     if let Some(v) = weak.upgrade() {
-                        if *v.current_chat_id.borrow() == chat && v.topic_id()==topic && crate::prefs::get().active_account_id == account {
+                        if *v.current_chat_id.borrow() == chat
+                            && v.topic_id() == topic
+                            && crate::prefs::get().active_account_id == account
+                        {
                             v.attach(path);
                         }
                     }
@@ -1466,10 +1599,17 @@ impl ChatView {
         let d = gtk::FileDialog::builder().title("Attach files or photos").build();
         let Some(win) = self.root.root().and_downcast::<gtk::Window>() else { return };
         let weak = Rc::downgrade(self);
-        let chat=*self.current_chat_id.borrow();let topic=self.topic_id();let session=crate::window::service().map(|s|s.generation);
+        let chat = *self.current_chat_id.borrow();
+        let topic = self.topic_id();
+        let session = crate::window::service().map(|s| s.generation);
         d.open_multiple(Some(&win), gio::Cancellable::NONE, move |res| {
             if let (Ok(files), Some(v)) = (res, weak.upgrade()) {
-                if *v.current_chat_id.borrow()!=chat||v.topic_id()!=topic||!session.as_ref().is_some_and(|s|crate::window::service_is_current(s)){return}
+                if *v.current_chat_id.borrow() != chat
+                    || v.topic_id() != topic
+                    || !session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
+                {
+                    return;
+                }
                 for i in 0..files.n_items() {
                     if let Some(f) = files.item(i).and_downcast::<gio::File>() {
                         if let Some(path) = f.path() {
@@ -1546,7 +1686,8 @@ impl ChatView {
         options.connect_clicked(move |button| {
             let Some(v) = options_view.upgrade() else { return };
             let Some(chat_id) = chat else { return };
-            if *v.current_chat_id.borrow() != chat || v.topic_id() != options_topic
+            if *v.current_chat_id.borrow() != chat
+                || v.topic_id() != options_topic
                 || !options_session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
             {
                 return;
@@ -1564,7 +1705,8 @@ impl ChatView {
             let topic = options_topic.clone();
             crate::message_tools::send_menu(button.upcast_ref(), chat_id, move |send_options| {
                 if let Some(v) = weak.upgrade() {
-                    if *v.current_chat_id.borrow() == Some(chat_id) && v.topic_id() == topic
+                    if *v.current_chat_id.borrow() == Some(chat_id)
+                        && v.topic_id() == topic
                         && session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
                     {
                         v.send_content_options(content.clone(), send_options);
@@ -1577,7 +1719,9 @@ impl ChatView {
         });
         send.connect_clicked(move |_| {
             if let Some(v) = weak.upgrade() {
-                if *v.current_chat_id.borrow() != chat || v.topic_id() != topic || !session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
+                if *v.current_chat_id.borrow() != chat
+                    || v.topic_id() != topic
+                    || !session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
                 {
                     dd.close();
                     return;
@@ -1642,7 +1786,8 @@ impl ChatView {
     pub fn update_chat(self: &Rc<Self>, chat: &ChatSummary) {
         let mut effective = chat.clone();
         if !self.topic.borrow().is_null() {
-            effective.data["draft_message"] = self.current_chat.borrow().as_ref().map(|c|c.data["draft_message"].clone()).unwrap_or(Value::Null);
+            effective.data["draft_message"] =
+                self.current_chat.borrow().as_ref().map(|c| c.data["draft_message"].clone()).unwrap_or(Value::Null);
         }
         let chat = &effective;
         let old = self.current_chat.borrow().as_ref().and_then(|c| c.data["last_read_outbox_message_id"].as_i64());
@@ -1736,9 +1881,11 @@ impl ChatView {
         title.set_max_width_chars(28);
         title.set_tooltip_text(Some(name));
         text.append(&title);
-        let kind = name.rsplit_once('.').map(|(_, ext)| ext.to_uppercase()).filter(|e| e.len() <= 5).unwrap_or_else(|| {
-            mime.rsplit('/').next().unwrap_or("File").to_uppercase()
-        });
+        let kind = name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext.to_uppercase())
+            .filter(|e| e.len() <= 5)
+            .unwrap_or_else(|| mime.rsplit('/').next().unwrap_or("File").to_uppercase());
         let file = m.files.iter().find(|f| f.role == "original").or(m.files.first());
         let sub = match file.filter(|f| f.active && f.size > 0) {
             Some(f) => format!("{} of {} · {kind}", human_size(f.downloaded), human_size(f.size)),
@@ -1865,8 +2012,9 @@ mod ui_regression {
     use super::*;
     #[test]
     fn tiled_layout_media_replacement_albums_and_drafts() {
-        let protocol=nyx_telegram_calls::engine::Engine::protocol().expect("Load native call library before checking GTK isolation");
-        assert!(protocol["library_versions"].as_array().is_some_and(|v|!v.is_empty()));
+        let protocol =
+            nyx_telegram_calls::engine::Engine::protocol().expect("Load native call library before checking GTK isolation");
+        assert!(protocol["library_versions"].as_array().is_some_and(|v| !v.is_empty()));
         gtk::init().expect("Run this check with a dedicated Broadway display");
         crate::actions::check_forward_selection();
         nyx_core::app::init(nyx_core::app::App { slug: "nyx-pulse-ui-test", name: "Pulse UI test" });
@@ -1955,38 +2103,54 @@ mod ui_regression {
         remote.data["draft_message"]["content"]["text"]["text"] = json!("Stale remote draft");
         view.update_chat(&remote);
         assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"], "New local draft");
-        let forum1=json!({"@type":"messageTopicForum","forum_topic_id":1});
-        let forum2=json!({"@type":"messageTopicForum","forum_topic_id":2});
-        let mut topic_chat=chat.clone();topic_chat.data["draft_message"]=Value::Null;
-        view.set_context(&topic_chat,forum1.clone(),"First topic");
+        let forum1 = json!({"@type":"messageTopicForum","forum_topic_id":1});
+        let forum2 = json!({"@type":"messageTopicForum","forum_topic_id":2});
+        let mut topic_chat = chat.clone();
+        topic_chat.data["draft_message"] = Value::Null;
+        view.set_context(&topic_chat, forum1.clone(), "First topic");
         assert!(view.context_bar.is_visible());
-        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"],"");
+        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"], "");
         view.text_view.buffer().set_text("First topic draft");
-        let first_key=view.draft_key();
-        let first_revision=view.history_revision.get();
+        let first_key = view.draft_key();
+        let first_revision = view.history_revision.get();
         let topic_message=parse_message(&json!({"id":19,"chat_id":7,"date":5,"topic_id":forum1,"content":{"@type":"messageText","text":{"text":"In topic one","entities":[]}}})).unwrap();
-        view.append_message(&topic_message);assert!(view.rows.borrow().contains_key(&19));
-        let mut wrong_topic=topic_message.clone();wrong_topic.id=20;wrong_topic.data["topic_id"]=forum2.clone();
-        view.append_message(&wrong_topic);assert!(!view.rows.borrow().contains_key(&20));
-        view.set_context(&topic_chat,forum2.clone(),"Second topic");
+        view.append_message(&topic_message);
+        assert!(view.rows.borrow().contains_key(&19));
+        let mut wrong_topic = topic_message.clone();
+        wrong_topic.id = 20;
+        wrong_topic.data["topic_id"] = forum2.clone();
+        view.append_message(&wrong_topic);
+        assert!(!view.rows.borrow().contains_key(&20));
+        view.set_context(&topic_chat, forum2.clone(), "Second topic");
         view.text_view.buffer().set_text("Second topic draft");
-        assert_ne!(first_key,view.draft_key());
-        view.topic_history(7,&forum1,first_revision,0,Ok(vec![topic_message]));
+        assert_ne!(first_key, view.draft_key());
+        view.topic_history(7, &forum1, first_revision, 0, Ok(vec![topic_message]));
         assert!(view.rows.borrow().is_empty());
-        view.remote_topic_draft(7,&forum1,&remote.data["draft_message"]);
+        view.remote_topic_draft(7, &forum1, &remote.data["draft_message"]);
         view.update_chat(&remote);
-        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"],"Second topic draft");
-        view.set_context(&topic_chat,forum1,"First topic");
-        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"],"First topic draft");
+        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"], "Second topic draft");
+        view.set_context(&topic_chat, forum1, "First topic");
+        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"], "First topic draft");
         view.set_chat(&chat);
-        assert!(view.topic_id().is_null());assert!(!view.context_bar.is_visible());
-        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"],"New local draft");
-        view.append_message(&message);view.append_message(&long_document);
-        let outgoing=parse_message(&json!({"id":90,"chat_id":7,"date":10,"is_outgoing":true,"content":{"@type":"messageText","text":{"text":"A reply with a link and a long unbroken value abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz","entities":[]}}})).unwrap();view.append_message(&outgoing);
-        let mut long_chat=chat.clone();long_chat.title="A very long conversation title that must fit beside the info pane".into();view.update_chat(&long_chat);
-        let panel=crate::detail_panel::DetailPanel::new();panel.set_chat(&long_chat);panel.root.set_visible(true);
-        let layout=w::hbox(0);layout.append(&view.root);layout.append(&panel.root);
-        let window = gtk::Window::builder().default_width(800).default_height(640).child(&layout).build();window.add_css_class("pulse-window");window.set_decorated(false);
+        assert!(view.topic_id().is_null());
+        assert!(!view.context_bar.is_visible());
+        assert_eq!(crate::compose::formatted(&view.text_view.buffer())["text"], "New local draft");
+        view.append_message(&message);
+        view.append_message(&long_document);
+        let outgoing=parse_message(&json!({"id":90,"chat_id":7,"date":10,"is_outgoing":true,"content":{"@type":"messageText","text":{"text":"A reply with a link and a long unbroken value abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz","entities":[]}}})).unwrap();
+        view.append_message(&outgoing);
+        let mut long_chat = chat.clone();
+        long_chat.title = "A very long conversation title that must fit beside the info pane".into();
+        view.update_chat(&long_chat);
+        let panel = crate::detail_panel::DetailPanel::new();
+        panel.set_chat(&long_chat);
+        panel.root.set_visible(true);
+        let layout = w::hbox(0);
+        layout.append(&view.root);
+        layout.append(&panel.root);
+        let window = gtk::Window::builder().default_width(800).default_height(640).child(&layout).build();
+        window.add_css_class("pulse-window");
+        window.set_decorated(false);
         window.present();
         let loop_ = glib::MainLoop::new(None, false);
         let done = loop_.clone();
@@ -1994,14 +2158,21 @@ mod ui_regression {
         loop_.run();
         let (minimum, _, _, _) = view.root.measure(gtk::Orientation::Horizontal, -1);
         assert!(minimum <= 748, "Conversation minimum width {minimum} exceeds a tiled window");
-        let (combined,_,_,_)=layout.measure(gtk::Orientation::Horizontal,-1);assert!(combined<=800,"Chat and info pane minimum width {combined} exceeds a tiled window");
-        assert!(layout.is_mapped());assert!(layout.width()>0);
-        layout.queue_allocate();layout.allocate(layout.width(),layout.height(),-1,None);
-        assert!(view.text_view.width()>=128,"The composer needs usable typing space beside the info pane");
+        let (combined, _, _, _) = layout.measure(gtk::Orientation::Horizontal, -1);
+        assert!(combined <= 800, "Chat and info pane minimum width {combined} exceeds a tiled window");
+        assert!(layout.is_mapped());
+        assert!(layout.width() > 0);
+        layout.queue_allocate();
+        layout.allocate(layout.width(), layout.height(), -1, None);
+        assert!(view.text_view.width() >= 128, "The composer needs usable typing space beside the info pane");
         let snapshot = gtk::Snapshot::new();
-        layout.snapshot_child(&view.root,&snapshot);layout.snapshot_child(&panel.root,&snapshot);
-        let node=snapshot.to_node().expect("The chat and info pane must render for visual inspection");
-        let renderer=gtk::gsk::CairoRenderer::new();renderer.realize_for_display(&gtk::prelude::WidgetExt::display(&window)).unwrap();renderer.render_texture(&node,None).save_to_png("/tmp/pulse-ui-audit.png").unwrap();renderer.unrealize();
+        layout.snapshot_child(&view.root, &snapshot);
+        layout.snapshot_child(&panel.root, &snapshot);
+        let node = snapshot.to_node().expect("The chat and info pane must render for visual inspection");
+        let renderer = gtk::gsk::CairoRenderer::new();
+        renderer.realize_for_display(&gtk::prelude::WidgetExt::display(&window)).unwrap();
+        renderer.render_texture(&node, None).save_to_png("/tmp/pulse-ui-audit.png").unwrap();
+        renderer.unrealize();
         view.reset_account();
         assert!(view.current_chat.borrow().is_none());
         assert!(view.current_chat_id.borrow().is_none());
@@ -2066,7 +2237,13 @@ impl ChatView {
         self.video_button.set_visible(private && self.callable.get());
         let label = if chat.chat_type == ChatType::Private { "Call" } else { "Voice chat" };
         self.call_label.set_text(label);
-        self.call_button.set_tooltip_text(Some(if private { "Voice call" } else if live { "Join the voice chat" } else { "Start a voice chat" }));
+        self.call_button.set_tooltip_text(Some(if private {
+            "Voice call"
+        } else if live {
+            "Join the voice chat"
+        } else {
+            "Start a voice chat"
+        }));
         self.call_button.update_property(&[gtk::accessible::Property::Label(label)]);
     }
 
@@ -2102,7 +2279,8 @@ impl ChatView {
             glib::spawn_future_local(async move {
                 let Ok(Ok(info)) = rx.recv().await else { return };
                 let Some(v) = still() else { return };
-                let count = info["member_count"].as_i64().or_else(|| info["members"].as_array().map(|m| m.len() as i64)).unwrap_or(0);
+                let count =
+                    info["member_count"].as_i64().or_else(|| info["members"].as_array().map(|m| m.len() as i64)).unwrap_or(0);
                 v.members.set((count, v.members.get().1));
                 v.refresh_status();
             });
@@ -2111,9 +2289,9 @@ impl ChatView {
         let user = chat.data["type"]["user_id"].as_i64();
         let rx = match (user, me) {
             (Some(user), me) if !chat.is_secret && Some(user) != me => Some(service.request("getUser", json!({"user_id":user}))),
-            (None, Some(me)) => {
-                Some(service.request("getChatMember", json!({"chat_id":id,"member_id":{"@type":"messageSenderUser","user_id":me}})))
-            }
+            (None, Some(me)) => Some(
+                service.request("getChatMember", json!({"chat_id":id,"member_id":{"@type":"messageSenderUser","user_id":me}})),
+            ),
             _ => None,
         };
         if let Some(rx) = rx {
@@ -2125,7 +2303,8 @@ impl ChatView {
                     _ => {
                         let status = &found["status"];
                         status["@type"] == "chatMemberStatusCreator"
-                            || (status["@type"] == "chatMemberStatusAdministrator" && status["rights"]["can_manage_video_chats"] == true)
+                            || (status["@type"] == "chatMemberStatusAdministrator"
+                                && status["rights"]["can_manage_video_chats"] == true)
                     }
                 };
                 v.callable.set(callable);
@@ -2215,7 +2394,11 @@ impl ChatView {
         self.placeholder.set_visible(!self.has_text());
         self.send_button.set_icon_name(icon);
         self.send_button.set_tooltip_text(Some(tip));
-        self.send_button.update_property(&[gtk::accessible::Property::Label(if self.has_text() { "Send" } else { "Record a voice message" })]);
+        self.send_button.update_property(&[gtk::accessible::Property::Label(if self.has_text() {
+            "Send"
+        } else {
+            "Record a voice message"
+        })]);
         if self.has_text() {
             self.send_button.add_css_class("sending");
         } else {
@@ -2321,7 +2504,8 @@ impl ChatView {
         let topic = self.topic_id();
         crate::message_tools::send_menu(parent, chat, move |options| {
             if let Some(v) = weak.upgrade() {
-                if *v.current_chat_id.borrow() == Some(chat) && v.topic_id() == topic
+                if *v.current_chat_id.borrow() == Some(chat)
+                    && v.topic_id() == topic
                     && session.as_ref().is_some_and(|s| crate::window::service_is_current(s))
                 {
                     v.send_text_options(options);
@@ -2382,24 +2566,58 @@ impl ChatView {
 }
 
 impl ChatView {
-    pub fn remote_topic_draft(&self, chat:i64, topic:&Value, value:&Value) {
-        if *self.current_chat_id.borrow()!=Some(chat)||self.topic_id()!=*topic{return}
-        if let Some(current)=self.current_chat.borrow_mut().as_mut(){current.data["draft_message"]=value.clone();}
-        let key=self.draft_key();
-        if !self.format_pending.get()&&!crate::prefs::get().drafts.get(&key).is_some_and(|d|d.pending){
-            let draft=crate::prefs::Draft::from_td(value);self.restore_draft(&draft);
-            crate::prefs::update(|p|{if draft.empty(){p.drafts.remove(&key);}else{p.drafts.insert(key,draft);}});
+    pub fn remote_topic_draft(&self, chat: i64, topic: &Value, value: &Value) {
+        if *self.current_chat_id.borrow() != Some(chat) || self.topic_id() != *topic {
+            return;
         }
-        if let Some(chat)=self.current_chat.borrow().as_ref(){self.apply_chat_status(chat);}
+        if let Some(current) = self.current_chat.borrow_mut().as_mut() {
+            current.data["draft_message"] = value.clone();
+        }
+        let key = self.draft_key();
+        if !self.format_pending.get() && !crate::prefs::get().drafts.get(&key).is_some_and(|d| d.pending) {
+            let draft = crate::prefs::Draft::from_td(value);
+            self.restore_draft(&draft);
+            crate::prefs::update(|p| {
+                if draft.empty() {
+                    p.drafts.remove(&key);
+                } else {
+                    p.drafts.insert(key, draft);
+                }
+            });
+        }
+        if let Some(chat) = self.current_chat.borrow().as_ref() {
+            self.apply_chat_status(chat);
+        }
     }
 }
 
 impl ChatView {
-    pub fn topic_name(&self,chat:i64,id:i64,name:&str){
-        if *self.current_chat_id.borrow()==Some(chat)&&self.topic_id()["forum_topic_id"].as_i64()==Some(id){self.context_label.set_text(name);}
+    pub fn topic_name(&self, chat: i64, id: i64, name: &str) {
+        if *self.current_chat_id.borrow() == Some(chat) && self.topic_id()["forum_topic_id"].as_i64() == Some(id) {
+            self.context_label.set_text(name);
+        }
     }
 }
 
-impl ChatView { pub fn context_jump(&self,jump:Option<i64>){self.history_jump.set(jump);} }
+impl ChatView {
+    pub fn context_jump(&self, jump: Option<i64>) {
+        self.history_jump.set(jump);
+    }
+}
 
-impl ChatView {pub fn bot_force_reply(&self,message:&MessageSummary){if message.is_outgoing||*self.current_chat_id.borrow()!=Some(message.chat_id)||!crate::topics::matches_message(&self.topic_id(),&message.data)||message.data["reply_markup"]["@type"]!="replyMarkupForceReply"||self.reply_id.get().is_some(){return}let b=self.text_view.buffer();if b.text(&b.start_iter(),&b.end_iter(),false).is_empty(){self.set_reply_to(message);}}}
+impl ChatView {
+    pub fn bot_force_reply(&self, message: &MessageSummary) {
+        if message.is_outgoing
+            || *self.current_chat_id.borrow() != Some(message.chat_id)
+            || !crate::topics::matches_message(&self.topic_id(), &message.data)
+            || message.data["reply_markup"]["@type"] != "replyMarkupForceReply"
+            || self.reply_id.get().is_some()
+        {
+            return;
+        }
+        let b = self.text_view.buffer();
+        if b.text(&b.start_iter(), &b.end_iter(), false).is_empty() {
+            self.set_reply_to(message);
+        }
+    }
+}

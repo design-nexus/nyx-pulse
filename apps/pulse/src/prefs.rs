@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct Prefs {
     pub text_scale: f64,
     pub high_contrast: bool,
-    pub shortcuts: std::collections::BTreeMap<String,String>,
+    pub shortcuts: std::collections::BTreeMap<String, String>,
     pub mode: ThemeMode,
     pub theme: String,
     pub glow: bool,
@@ -157,12 +157,13 @@ mod draft_tests {
         let unsupported = json!({"@type":"draftMessage","reply_to":{"message_id":9},"content":{"@type":"draftMessageContentVoiceNote","file_path":"recording.ogg"}});
         assert!(unsupported_draft(&unsupported));
         assert!(Draft::from_td(&unsupported).empty());
-        assert!(unsupported_draft(&json!({"content":{"@type":"draftMessageContentText"},"suggested_post_info":{"@type":"suggestedPostInfo"}})));
+        assert!(unsupported_draft(
+            &json!({"content":{"@type":"draftMessageContentText"},"suggested_post_info":{"@type":"suggestedPostInfo"}})
+        ));
     }
 }
 
 pub fn unsupported_draft(value: &serde_json::Value) -> bool {
     !value.is_null()
-        && (value["content"]["@type"].as_str() != Some("draftMessageContentText")
-            || !value["suggested_post_info"].is_null())
+        && (value["content"]["@type"].as_str() != Some("draftMessageContentText") || !value["suggested_post_info"].is_null())
 }

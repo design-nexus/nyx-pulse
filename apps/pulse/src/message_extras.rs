@@ -65,10 +65,7 @@ pub fn render(body: &gtk::Box, m: &MessageSummary) -> bool {
             true
         }
         "messageStory" => {
-            let (chat, id) = (
-                c["story_poster_chat_id"].as_i64().unwrap_or(0),
-                c["story_id"].as_i64().unwrap_or(0),
-            );
+            let (chat, id) = (c["story_poster_chat_id"].as_i64().unwrap_or(0), c["story_id"].as_i64().unwrap_or(0));
             button(body, "View story", move || crate::stories::view(chat, id));
             true
         }
@@ -137,11 +134,7 @@ pub fn render(body: &gtk::Box, m: &MessageSummary) -> bool {
                 &format!(
                     "{} {}",
                     c["emoji"].as_str().unwrap_or("🎲"),
-                    c["value"]
-                        .as_i64()
-                        .filter(|v| *v != 0)
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "Rolling…".into())
+                    c["value"].as_i64().filter(|v| *v != 0).map(|v| v.to_string()).unwrap_or_else(|| "Rolling…".into())
                 ),
             );
             true
@@ -189,10 +182,7 @@ fn add_tasks(chat: i64, id: i64) {
     note(&fields, "One task per line");
     fields.append(&text);
     submit(&d, &b, &fields, s, "Add tasks", move |s| {
-        let tasks = text
-            .buffer()
-            .text(&text.buffer().start_iter(), &text.buffer().end_iter(), false)
-            .to_string();
+        let tasks = text.buffer().text(&text.buffer().start_iter(), &text.buffer().end_iter(), false).to_string();
         async move {
             if s.call(
                 "getMessageProperties",
@@ -269,9 +259,7 @@ pub fn compose_checklist(chat: i64) {
     submit(&d, &b, &fields, s, "Send checklist", move |s| {
         let (title, text, add, mark, topic, reply) = (
             title.text().to_string(),
-            text.buffer()
-                .text(&text.buffer().start_iter(), &text.buffer().end_iter(), false)
-                .to_string(),
+            text.buffer().text(&text.buffer().start_iter(), &text.buffer().end_iter(), false).to_string(),
             add.is_active(),
             mark.is_active(),
             topic.clone(),
@@ -338,13 +326,8 @@ pub fn translate(chat: i64, id: i64) {
         if !s.valid() {
             return;
         }
-        let (s, weak, result, lang, button) = (
-            s.clone(),
-            weak.clone(),
-            result.clone(),
-            language.text().trim().to_string(),
-            button.clone(),
-        );
+        let (s, weak, result, lang, button) =
+            (s.clone(), weak.clone(), result.clone(), language.text().trim().to_string(), button.clone());
         button.set_sensitive(false);
         glib::spawn_future_local(async move {
             let response = s
@@ -359,11 +342,7 @@ pub fn translate(chat: i64, id: i64) {
             if !s.valid() || weak.upgrade().is_none_or(|d| !d.is_visible()) {
                 return;
             }
-            result.set_text(
-                &response
-                    .map(|v| v["text"].as_str().unwrap_or("").to_string())
-                    .unwrap_or_else(|e| e),
-            );
+            result.set_text(&response.map(|v| v["text"].as_str().unwrap_or("").to_string()).unwrap_or_else(|e| e));
         });
     });
     d.present();
@@ -476,16 +455,7 @@ pub(crate) fn check_widgets() {
     let body = nyx_ui::widgets::vbox(6);
     let mut m=nyx_telegram_core::client::parse_message(&json!({"id":77,"chat_id":7,"date":1,"content":{"@type":"messageChecklist","list":{"title":{"text":"Shopping"},"tasks":[{"id":1,"text":{"text":"Milk"},"completion_date":0}],"can_mark_tasks_as_done":false}}})).unwrap();
     assert!(render(&body, &m));
-    assert_eq!(
-        body.first_child()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .downcast::<gtk::CheckButton>()
-            .unwrap()
-            .is_sensitive(),
-        false
-    );
+    assert_eq!(body.first_child().unwrap().next_sibling().unwrap().downcast::<gtk::CheckButton>().unwrap().is_sensitive(), false);
     m.data["reply_markup"] = json!({"@type":"replyMarkupInlineKeyboard","rows":[[{"text":"Copy","type":{"@type":"inlineKeyboardButtonTypeCopyText","text":"value"}}],[{"text":"Unavailable","type":{"@type":"inlineKeyboardButtonTypeDisabled"}}]]});
     let keyboard = nyx_ui::widgets::vbox(4);
     crate::bots::render(&keyboard, &m);

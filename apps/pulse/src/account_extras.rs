@@ -355,8 +355,11 @@ fn passkey_operation(create: bool) {
             let path = nyx_core::paths::cache_dir().join("passkey-helper.py");
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             std::fs::write(&path, include_str!("../helpers/passkey.py")).map_err(|e| e.to_string())?;
-            let output =
-                std::process::Command::new(crate::webapps::PYTHON).arg(path).arg("--devices").output().map_err(|e| e.to_string())?;
+            let output = std::process::Command::new(crate::webapps::PYTHON)
+                .arg(path)
+                .arg("--devices")
+                .output()
+                .map_err(|e| e.to_string())?;
             let data: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
             data["result"]
                 .as_array()

@@ -110,7 +110,7 @@ pub(crate) fn note(body: &gtk::Box, text: &str) -> gtk::Label {
     label
 }
 pub(crate) fn entry(body: &gtk::Box, title: &str, value: &str, max: i32) -> gtk::Entry {
-    let label=note(body, title);
+    let label = note(body, title);
     let e = gtk::Entry::new();
     label.set_mnemonic_widget(Some(&e));
     e.set_text(value);
@@ -139,7 +139,11 @@ fn clear(body: &gtk::Box) {
 }
 fn button(body: &gtk::Box, text: &str, scope: &Scope, callback: impl Fn() + 'static) -> gtk::Button {
     let b = gtk::Button::with_label(text);
-    if let Some(label)=b.child().and_downcast::<gtk::Label>(){label.set_wrap(true);label.set_wrap_mode(gtk::pango::WrapMode::WordChar);label.set_max_width_chars(44);}
+    if let Some(label) = b.child().and_downcast::<gtk::Label>() {
+        label.set_wrap(true);
+        label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        label.set_max_width_chars(44);
+    }
     let scope = scope.clone();
     b.connect_clicked(move |_| {
         if scope.valid() {
@@ -967,7 +971,11 @@ fn invites(chat: i64) {
         let revoked = gtk::CheckButton::with_label("Show revoked links");
         body.append(&revoked);
         button(&body, "Create invite link…", &s, move || invite_editor(chat, Value::Null));
-        if c.channel(){button(&body,"Create paid channel invitation…",&s,move||crate::commerce::subscription_invite(chat,Value::Null));}
+        if c.channel() {
+            button(&body, "Create paid channel invitation…", &s, move || {
+                crate::commerce::subscription_invite(chat, Value::Null)
+            });
+        }
         let list = scroll(&body);
         let more = gtk::Button::with_label("Load more");
         body.append(&more);
@@ -1104,7 +1112,10 @@ impl Invites {
     }
 }
 fn invite_editor(chat: i64, link: Value) {
-    if link["subscription_pricing"].is_object(){crate::commerce::subscription_invite(chat,link);return}
+    if link["subscription_pricing"].is_object() {
+        crate::commerce::subscription_invite(chat, link);
+        return;
+    }
     let Some(s) = Scope::current() else { return };
     let edit = link.is_object();
     let (dialog, body) = w::dialog(if edit { "Edit invite link" } else { "Create invite link" }, 440);

@@ -148,7 +148,9 @@ pub fn widget(text: &FormattedText) -> gtk::Widget {
                             path = file["local"]["path"].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
                         }
                     }
-                    if !crate::window::service_is_current(&generation) { return; }
+                    if !crate::window::service_is_current(&generation) {
+                        return;
+                    }
                     if let Some(path) = path {
                         EMOJI.with(|c| {
                             c.borrow_mut().insert(*id, path.clone());
@@ -169,7 +171,9 @@ fn paint(container: &gtk::Box, path: &str) {
     let child: gtk::Widget = if path.ends_with(".tgs") {
         let pic = gtk::Picture::new();
         pic.set_size_request(24, 24);
-        if !crate::animation::play(&pic, path) { return; }
+        if !crate::animation::play(&pic, path) {
+            return;
+        }
         pic.upcast()
     } else if let Ok(texture) = gdk::Texture::from_file(&gio::File::for_path(path)) {
         let pic = gtk::Picture::for_paintable(&texture);

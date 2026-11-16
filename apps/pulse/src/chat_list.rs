@@ -425,20 +425,37 @@ impl ChatList {
         };
         let has_rows = self.rows.first_child().is_some();
         self.chats_heading.set_visible(searching && has_rows);
-        if has_rows || self.found.first_child().is_some() || (place == Place::Calls && !searching && self.calls.first_child().is_some()) {
+        if has_rows
+            || self.found.first_child().is_some()
+            || (place == Place::Calls && !searching && self.calls.first_child().is_some())
+        {
             return;
         }
         let (icon, title, desc) = if searching {
             ("edit-find-symbolic", "Nothing found", "No chats match. Messages that match show here as Telegram finds them.")
         } else {
             match place {
-                Place::Chats(ChatListId::Main, ChatFilter::All) => ("pulse-chats-symbolic", "No chats yet", "Chats appear here once Telegram has loaded them."),
-                Place::Chats(ChatListId::Main, ChatFilter::Unread) => ("mail-unread-symbolic", "All caught up", "No chats have unread messages."),
-                Place::Chats(ChatListId::Main, ChatFilter::Personal) => ("avatar-default-symbolic", "No personal chats", "Chats with one person show here."),
-                Place::Chats(ChatListId::Main, ChatFilter::Groups) => ("pulse-groups-symbolic", "No groups", "Groups you're in show here."),
-                Place::Chats(ChatListId::Main, ChatFilter::Channels) => ("pulse-channels-symbolic", "No channels", "Channels you follow show here."),
-                Place::Chats(ChatListId::Archive, _) => ("pulse-archive-symbolic", "Archive is empty", "Chats you archive wait here."),
-                Place::Chats(ChatListId::Folder(_), _) => ("folder-symbolic", "No chats in this folder", "Add chats to the folder from a chat's menu."),
+                Place::Chats(ChatListId::Main, ChatFilter::All) => {
+                    ("pulse-chats-symbolic", "No chats yet", "Chats appear here once Telegram has loaded them.")
+                }
+                Place::Chats(ChatListId::Main, ChatFilter::Unread) => {
+                    ("mail-unread-symbolic", "All caught up", "No chats have unread messages.")
+                }
+                Place::Chats(ChatListId::Main, ChatFilter::Personal) => {
+                    ("avatar-default-symbolic", "No personal chats", "Chats with one person show here.")
+                }
+                Place::Chats(ChatListId::Main, ChatFilter::Groups) => {
+                    ("pulse-groups-symbolic", "No groups", "Groups you're in show here.")
+                }
+                Place::Chats(ChatListId::Main, ChatFilter::Channels) => {
+                    ("pulse-channels-symbolic", "No channels", "Channels you follow show here.")
+                }
+                Place::Chats(ChatListId::Archive, _) => {
+                    ("pulse-archive-symbolic", "Archive is empty", "Chats you archive wait here.")
+                }
+                Place::Chats(ChatListId::Folder(_), _) => {
+                    ("folder-symbolic", "No chats in this folder", "Add chats to the folder from a chat's menu.")
+                }
                 Place::Saved => ("user-bookmarks-symbolic", "Saved messages", "Opening the chat you keep for yourself…"),
                 Place::Calls => ("call-start-symbolic", "No calls yet", "Calls you make and receive show here."),
             }
@@ -549,7 +566,8 @@ fn matches_query(chat: &ChatSummary, query: &str) -> bool {
 
 /// The chat you keep for yourself.
 pub fn is_saved_messages(chat: &ChatSummary) -> bool {
-    crate::window::my_id().is_some_and(|me| chat.chat_type == ChatType::Private && chat.data["type"]["user_id"].as_i64() == Some(me))
+    crate::window::my_id()
+        .is_some_and(|me| chat.chat_type == ChatType::Private && chat.data["type"]["user_id"].as_i64() == Some(me))
 }
 
 /// A chat's name as Pulse shows it: Saved Messages for the chat with yourself.
@@ -708,7 +726,9 @@ fn call_row(m: &MessageSummary) -> gtk::Button {
     top.append(&w::label(&format_time(m.date), "chat-time"));
     let bottom = w::hbox(5);
     let (duration, video, reason) = match &m.content {
-        MessageContent::Call { duration_seconds, is_video, discard_reason } => (*duration_seconds, *is_video, discard_reason.clone()),
+        MessageContent::Call { duration_seconds, is_video, discard_reason } => {
+            (*duration_seconds, *is_video, discard_reason.clone())
+        }
         _ => (0, false, String::new()),
     };
     let missed = !m.is_outgoing && reason.contains("Missed");
@@ -791,7 +811,12 @@ pub fn avatar(name: &str, path: Option<&str>, size: i32) -> gtk::Widget {
         frame.add_overlay(&pic);
         return frame.upcast();
     }
-    let initials = name.split_whitespace().take(2).filter_map(|s| s.chars().find(|c| c.is_alphanumeric())).collect::<String>().to_uppercase();
+    let initials = name
+        .split_whitespace()
+        .take(2)
+        .filter_map(|s| s.chars().find(|c| c.is_alphanumeric()))
+        .collect::<String>()
+        .to_uppercase();
     let frame = avatar_frame(size);
     frame.add_css_class("tinted");
     nyx_ui::sidebar::set_section(&frame, &avatar_swatch(name));

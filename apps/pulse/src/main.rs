@@ -1,61 +1,61 @@
-mod dialog_dismissal;
 mod account_extras;
-mod story_extras;
 mod business_extras;
-mod gifts;
 mod conversation_windows;
 mod desktop_extras;
+mod dialog_dismissal;
 mod export_bundle;
-mod privacy_tools;
+mod gifts;
 mod notifications;
-// Nyx Pulse: Native Telegram Desktop Client for Omarchy Linux and the Nyx Suite.
+mod privacy_tools;
+mod story_extras;
+// Nyx Pulse: a native Telegram desktop client in the Nyx suite.
 
-mod actions;
-mod message_editing;
-mod payments;
-mod webapps;
-mod auth_tools;
-mod features;
 mod account_tools;
-mod desktop_tools;
-mod bots;
-mod stories;
-mod commerce;
-mod group_calls;
-mod locations;
-mod message_extras;
-mod statistics;
-mod business;
+mod actions;
 mod animation;
-mod clip;
+mod audit;
+mod auth_tools;
 mod auth_view;
+mod bots;
+mod business;
 mod calling_ui;
 mod calls;
 mod chat_list;
 mod chat_view;
-mod control;
+mod clip;
+mod commerce;
 mod compose;
+mod control;
+mod desktop_tools;
+mod detail_panel;
+mod features;
 mod folders;
+mod group_calls;
+mod group_settings;
 mod groups;
 mod identities;
-mod audit;
-mod group_settings;
-mod topics;
-mod topic_art;
-mod message_tools;
-mod detail_panel;
+mod locations;
 mod media_viewer;
+mod message_editing;
+mod message_extras;
+mod message_tools;
+mod payments;
 mod picker;
 mod places;
+mod poll_media;
 mod prefs;
 mod recording;
-mod rich_text;
 mod rich_messages;
-mod poll_media;
+mod rich_text;
 mod secrets;
 mod service;
 mod settings_dialog;
+mod statistics;
+mod stories;
 mod theme;
+mod topic_art;
+mod topics;
+mod webapps;
 mod window;
 
 use gtk::gio;
@@ -68,7 +68,7 @@ fn main() -> glib::ExitCode {
     let args: Vec<_> = std::env::args().collect();
     if args.iter().any(|s| s == "--help" || s == "-h") {
         println!("Usage: nyx-pulse [--help] [--version]");
-        println!("Native Telegram desktop client for Omarchy Linux and the Nyx Suite");
+        println!("Native Telegram desktop client in the Nyx suite");
         return glib::ExitCode::SUCCESS;
     }
     if args.iter().any(|s| s == "--version" || s == "-V") {
@@ -95,7 +95,12 @@ fn main() -> glib::ExitCode {
         nyx_core::control::serve_async(app, control::tools(), control::handle_async);
     });
 
-    app.connect_shutdown(|_| {crate::conversation_windows::reset(); crate::group_calls::stop(); crate::locations::reset(); crate::webapps::reset(); });
+    app.connect_shutdown(|_| {
+        crate::conversation_windows::reset();
+        crate::group_calls::stop();
+        crate::locations::reset();
+        crate::webapps::reset();
+    });
 
     app.connect_activate(|app| {
         window::present(app);

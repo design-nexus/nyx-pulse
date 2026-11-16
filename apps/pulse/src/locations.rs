@@ -37,35 +37,17 @@ async fn call(
     method: &str,
     args: Option<&glib::Variant>,
 ) -> Result<glib::Variant, String> {
-    bus.call_future(
-        Some(BUS),
-        path,
-        interface,
-        method,
-        args,
-        None,
-        gio::DBusCallFlags::NONE,
-        10000,
-    )
-    .await
-    .map_err(|e| format!("Device location unavailable: {e}"))
+    bus.call_future(Some(BUS), path, interface, method, args, None, gio::DBusCallFlags::NONE, 10000)
+        .await
+        .map_err(|e| format!("Device location unavailable: {e}"))
 }
 async fn properties(
     bus: &gio::DBusConnection,
     path: &str,
     interface: &str,
 ) -> Result<std::collections::HashMap<String, glib::Variant>, String> {
-    let v = call(
-        bus,
-        path,
-        "org.freedesktop.DBus.Properties",
-        "GetAll",
-        Some(&(interface,).to_variant()),
-    )
-    .await?;
-    v.child_value(0)
-        .get()
-        .ok_or("The location provider returned invalid properties.".into())
+    let v = call(bus, path, "org.freedesktop.DBus.Properties", "GetAll", Some(&(interface,).to_variant())).await?;
+    v.child_value(0).get().ok_or("The location provider returned invalid properties.".into())
 }
 fn unwrap(v: &glib::Variant) -> glib::Variant {
     v.as_variant().unwrap_or_else(|| v.clone())
@@ -73,28 +55,15 @@ fn unwrap(v: &glib::Variant) -> glib::Variant {
 impl Device {
     async fn start() -> Result<Self, String> {
         let bus = gio::bus_get_future(gio::BusType::System).await.map_err(|e| e.to_string())?;
-        let result = call(
-            &bus,
-            "/org/freedesktop/GeoClue2/Manager",
-            "org.freedesktop.GeoClue2.Manager",
-            "GetClient",
-            None,
-        )
-        .await?;
+        let result =
+            call(&bus, "/org/freedesktop/GeoClue2/Manager", "org.freedesktop.GeoClue2.Manager", "GetClient", None).await?;
         let path = result.child_value(0).str().ok_or("No device location client.")?.to_owned();
         let client = Self { bus, path };
-        for (key, value) in [
-            ("DesktopId", "io.github.design_nexus.nyx.Pulse".to_variant()),
-            ("RequestedAccuracyLevel", 8u32.to_variant()),
-        ] {
-            call(
-                &client.bus,
-                &client.path,
-                "org.freedesktop.DBus.Properties",
-                "Set",
-                Some(&(CLIENT, key, value).to_variant()),
-            )
-            .await?;
+        for (key, value) in
+            [("DesktopId", "io.github.design_nexus.nyx.Pulse".to_variant()), ("RequestedAccuracyLevel", 8u32.to_variant())]
+        {
+            call(&client.bus, &client.path, "org.freedesktop.DBus.Properties", "Set", Some(&(CLIENT, key, value).to_variant()))
+                .await?;
         }
         call(&client.bus, &client.path, CLIENT, "Start", None).await?;
         Ok(client)
@@ -102,32 +71,20 @@ impl Device {
     async fn fix(&self) -> Result<(f64, f64, f64), String> {
         for _ in 0..20 {
             let p = properties(&self.bus, &self.path, CLIENT).await?;
-            let location = p
-                .get("Location")
-                .map(unwrap)
-                .and_then(|v| v.str().map(str::to_owned))
-                .unwrap_or_default();
+            let location = p.get("Location").map(unwrap).and_then(|v| v.str().map(str::to_owned)).unwrap_or_default();
             if location.is_empty() || location == "/" {
                 glib::timeout_future(std::time::Duration::from_millis(500)).await;
                 continue;
             }
             let p = properties(&self.bus, &location, "org.freedesktop.GeoClue2.Location").await?;
             let number = |key| {
-                p.get(key)
-                    .map(unwrap)
-                    .and_then(|v| v.get::<f64>())
-                    .ok_or_else(|| format!("Missing {key} in device location."))
+                p.get(key).map(unwrap).and_then(|v| v.get::<f64>()).ok_or_else(|| format!("Missing {key} in device location."))
             };
             let (lat, lon, accuracy) = (number("Latitude")?, number("Longitude")?, number("Accuracy")?);
             if !valid_fix(lat, lon, accuracy) {
                 return Err("The device returned an invalid location.".into());
             }
-            let timestamp = p
-                .get("Timestamp")
-                .map(unwrap)
-                .and_then(|v| v.get::<(u64, u64)>())
-                .map(|t| t.0)
-                .unwrap_or(0);
+            let timestamp = p.get("Timestamp").map(unwrap).and_then(|v| v.get::<(u64, u64)>()).map(|t| t.0).unwrap_or(0);
             if timestamp == 0 || chrono::Utc::now().timestamp().saturating_sub(timestamp as i64) > 120 {
                 return Err("The location provider's last fix is too old.".into());
             }
@@ -170,10 +127,7 @@ pub fn update(v: &Value) {
         return;
     }
     let messages = v["messages"].as_array().cloned().unwrap_or_default();
-    let active = messages
-        .iter()
-        .filter_map(|m| Some((m["chat_id"].as_i64()?, m["id"].as_i64()?)))
-        .collect::<Vec<_>>();
+    let active = messages.iter().filter_map(|m| Some((m["chat_id"].as_i64()?, m["id"].as_i64()?))).collect::<Vec<_>>();
     TRACKING.with(|t| t.borrow_mut().retain(|k, _| active.contains(k)));
     ACTIVE.with(|v| *v.borrow_mut() = messages);
 }
@@ -191,17 +145,7 @@ pub fn manage() {
             let (chat, id) = (m["chat_id"].as_i64().unwrap_or(0), m["id"].as_i64().unwrap_or(0));
             let title = window::chat(chat).map(|c| c.title).unwrap_or_else(|| format!("Chat {chat}"));
             let tracking = TRACKING.with(|v| v.borrow().contains_key(&(chat, id)));
-            note(
-                &b,
-                &format!(
-                    "{title} · {}",
-                    if tracking {
-                        "automatic device updates"
-                    } else {
-                        "manual updates"
-                    }
-                ),
-            );
+            note(&b, &format!("{title} · {}", if tracking { "automatic device updates" } else { "manual updates" }));
             let scope = s.clone();
             button(&b, "Enable automatic device updates…", move || {
                 if !scope.valid() {
@@ -326,9 +270,7 @@ fn start(scope: Scope, chat: i64, id: i64) {
             });
         }
         if let Err(e) = result {
-            scope.error(&format!(
-                "Automatic location updates stopped. Last position remains shared until expiry. {e}"
-            ));
+            scope.error(&format!("Automatic location updates stopped. Last position remains shared until expiry. {e}"));
         }
     });
 }
@@ -344,4 +286,7 @@ mod tests {
     }
 }
 
-pub(crate) async fn device_fix()->Result<(f64,f64,f64),String>{let device=Device::start().await?;device.fix().await}
+pub(crate) async fn device_fix() -> Result<(f64, f64, f64), String> {
+    let device = Device::start().await?;
+    device.fix().await
+}

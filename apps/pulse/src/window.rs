@@ -162,8 +162,7 @@ pub fn open_saved_messages() {
                 _ => return,
             },
         };
-        let Ok(Ok(chat)) = s.request("createPrivateChat", serde_json::json!({"user_id":me,"force":false})).recv().await
-        else {
+        let Ok(Ok(chat)) = s.request("createPrivateChat", serde_json::json!({"user_id":me,"force":false})).recv().await else {
             return;
         };
         if service_is_current(&session)
@@ -636,13 +635,14 @@ fn build_window(app: &gtk::Application) {
     PLACES.with(|p| *p.borrow_mut() = Some(places.clone()));
     NEW_BUTTON.with(|b| *b.borrow_mut() = Some(new_button.clone()));
 
-
     // Connect conversation selection to view and detail panel
     let cv = chat_view.clone();
     let dp = detail_panel.clone();
     let cl_for_select = chat_list.clone();
     chat_list.connect_chat_selected(move |chat_id| {
-        if CONTEXT_SELECT.with(|v|v.get()){return}
+        if CONTEXT_SELECT.with(|v| v.get()) {
+            return;
+        }
         let Some(chat) = cl_for_select.get_chat(chat_id) else { return };
         advance_navigation();
         let previous = *cv.current_chat_id.borrow();
@@ -651,7 +651,9 @@ fn build_window(app: &gtk::Application) {
         }
         if let Some(previous) = previous {
             with_service(|s| {
-                if !crate::conversation_windows::is_open(previous){s.request("closeChat", serde_json::json!({"chat_id":previous}));}
+                if !crate::conversation_windows::is_open(previous) {
+                    s.request("closeChat", serde_json::json!({"chat_id":previous}));
+                }
             });
         }
         cv.set_chat(&chat);
@@ -709,9 +711,14 @@ fn build_window(app: &gtk::Application) {
     auth_view.connect_submit_code(|code| with_service(|s| s.submit_code(code)));
     auth_view.connect_submit_password(|pwd| with_service(|s| s.submit_password(pwd)));
     auth_view.connect_request_qr(|| with_service(|s| s.request_qr()));
-    chat_view.connect_typing(|chat| with_service(|s| {
-        s.request("sendChatAction",serde_json::json!({"chat_id":chat,"topic_id":composer_topic(chat),"action":{"@type":"chatActionTyping"}}));
-    }));
+    chat_view.connect_typing(|chat| {
+        with_service(|s| {
+            s.request(
+                "sendChatAction",
+                serde_json::json!({"chat_id":chat,"topic_id":composer_topic(chat),"action":{"@type":"chatActionTyping"}}),
+            );
+        })
+    });
     let cv_read = chat_view.clone();
     let weak = window.downgrade();
     glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
@@ -760,7 +767,7 @@ fn build_window(app: &gtk::Application) {
             crate::conversation_windows::event(&event);
             match event {
                 ServiceEvent::DraftSynced { chat_id, topic, draft } => {
-                    let key = crate::topics::draft_key(&prefs::get().active_account_id,chat_id,&topic);
+                    let key = crate::topics::draft_key(&prefs::get().active_account_id, chat_id, &topic);
                     prefs::update(|p| {
                         if let Some(local) = p.drafts.get_mut(&key) {
                             if local.to_td() == draft {
@@ -773,22 +780,36 @@ fn build_window(app: &gtk::Application) {
                     });
                 }
                 ServiceEvent::ContextReady { mut chat, topic, title, draft, navigation, jump } => {
-                    if navigation != navigation_version() { continue; }
+                    if navigation != navigation_version() {
+                        continue;
+                    }
                     cl_events.upsert_chat(&chat);
-                    CONTEXT_SELECT.with(|v|v.set(true));
+                    CONTEXT_SELECT.with(|v| v.set(true));
                     cl_events.select_chat(chat.id);
-                    CONTEXT_SELECT.with(|v|v.set(false));
-                    let previous=*cv_events.current_chat_id.borrow();
-                    if let Some(previous)=previous.filter(|id|*id!=chat.id){with_service(|s|{if !crate::conversation_windows::is_open(previous){s.request("closeChat",serde_json::json!({"chat_id":previous}));}});}
-                    with_service(|s|{s.request("openChat",serde_json::json!({"chat_id":chat.id}));});
+                    CONTEXT_SELECT.with(|v| v.set(false));
+                    let previous = *cv_events.current_chat_id.borrow();
+                    if let Some(previous) = previous.filter(|id| *id != chat.id) {
+                        with_service(|s| {
+                            if !crate::conversation_windows::is_open(previous) {
+                                s.request("closeChat", serde_json::json!({"chat_id":previous}));
+                            }
+                        });
+                    }
+                    with_service(|s| {
+                        s.request("openChat", serde_json::json!({"chat_id":chat.id}));
+                    });
                     dp_events.set_chat(&chat);
-                    if !topic.is_null(){chat.data["draft_message"] = draft;}
-                    cv_events.set_context(&chat,topic,&title);
+                    if !topic.is_null() {
+                        chat.data["draft_message"] = draft;
+                    }
+                    cv_events.set_context(&chat, topic, &title);
                     cv_events.context_jump(jump);
                     cv_events.load_history(jump.unwrap_or(0));
                     stack.set_visible_child_name("main");
                 }
-                ServiceEvent::TopicHistoryLoaded {chat_id,topic,revision,from,result} => cv_events.topic_history(chat_id,&topic,revision,from,result),
+                ServiceEvent::TopicHistoryLoaded { chat_id, topic, revision, from, result } => {
+                    cv_events.topic_history(chat_id, &topic, revision, from, result)
+                }
                 ServiceEvent::SecretChatCreated(chat) => {
                     cl_events.upsert_chat(&chat);
                     cl_events.select_chat(chat.id);
@@ -808,7 +829,9 @@ fn build_window(app: &gtk::Application) {
                     }
                 }
                 ServiceEvent::Update(TelegramUpdate::AuthStateChanged(state)) => {
-                    if matches!(state,AuthState::WaitRegistration){crate::auth_tools::registration();}
+                    if matches!(state, AuthState::WaitRegistration) {
+                        crate::auth_tools::registration();
+                    }
                     if matches!(state, AuthState::Closed) && LOGGING_OUT.with(|v| v.replace(false)) {
                         switch_account(prefs::get().active_account_id);
                         continue;
@@ -845,7 +868,9 @@ fn build_window(app: &gtk::Application) {
                     let new = cl_events.get_chat(msg.chat_id).and_then(|c| c.last_message).is_none_or(|m| m.id != msg.id);
                     if !msg.is_outgoing
                         && new
-                        && (!win_events.is_active() || *cv_events.current_chat_id.borrow() != Some(msg.chat_id) || !crate::topics::matches_message(&cv_events.topic_id(),&msg.data))
+                        && (!win_events.is_active()
+                            || *cv_events.current_chat_id.borrow() != Some(msg.chat_id)
+                            || !crate::topics::matches_message(&cv_events.topic_id(), &msg.data))
                         && prefs::get().notifications_enabled
                     {
                         let chat = cl_events.get_chat(msg.chat_id);
@@ -973,7 +998,8 @@ fn build_window(app: &gtk::Application) {
                         );
                     }
                     if v["@type"] == "updateChatOnlineMemberCount" {
-                        cv_events.set_online_count(v["chat_id"].as_i64().unwrap_or(0), v["online_member_count"].as_i64().unwrap_or(0));
+                        cv_events
+                            .set_online_count(v["chat_id"].as_i64().unwrap_or(0), v["online_member_count"].as_i64().unwrap_or(0));
                     }
                     if v["@type"] == "updateMessageIsPinned" && v["chat_id"].as_i64() == *cv_events.current_chat_id.borrow() {
                         cv_events.refresh_pinned();
@@ -1176,7 +1202,6 @@ pub const SHORTCUTS: &[(&[&str], &str)] = &[
     (&["Shift", "F10"], "Open focused chat menu"),
 ];
 
-
 pub fn show_shortcuts() {
     let (dialog, card) = w::dialog("Keyboard shortcuts", 520);
     let list = w::vbox(0);
@@ -1245,7 +1270,9 @@ fn install_shortcuts(
             }
         }
 
-        if crate::desktop_extras::shortcut(key,modifier){return glib::Propagation::Stop;}
+        if crate::desktop_extras::shortcut(key, modifier) {
+            return glib::Propagation::Stop;
+        }
 
         if (key == gdk::Key::F1) || (!typing && key == gdk::Key::question) {
             show_shortcuts();
@@ -1368,19 +1395,41 @@ pub fn call_ui() -> Option<Rc<CallingUi>> {
 }
 
 pub fn composer_reply(chat: i64) -> serde_json::Value {
-    if let Some(v)=crate::conversation_windows::focused(chat){return v.reply_target()}
-    CHAT_VIEW.with(|v| v.borrow().as_ref().filter(|v| *v.current_chat_id.borrow() == Some(chat)).map(|v| v.reply_target()).unwrap_or(serde_json::Value::Null))
+    if let Some(v) = crate::conversation_windows::focused(chat) {
+        return v.reply_target();
+    }
+    CHAT_VIEW.with(|v| {
+        v.borrow()
+            .as_ref()
+            .filter(|v| *v.current_chat_id.borrow() == Some(chat))
+            .map(|v| v.reply_target())
+            .unwrap_or(serde_json::Value::Null)
+    })
 }
 
 pub fn display_message(message: &nyx_telegram_core::models::MessageSummary) {
-    CHAT_VIEW.with(|v| { if let Some(v) = v.borrow().as_ref() { v.append_message(message); } });
+    CHAT_VIEW.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.append_message(message);
+        }
+    });
 }
 
 pub fn jump_message(message: &nyx_telegram_core::models::MessageSummary) {
-    if active_chat_id()!=Some(message.chat_id)||!crate::topics::matches_message(&composer_topic(message.chat_id),&message.data){
-        crate::topics::open_link(serde_json::json!({"chat_id":message.chat_id,"topic_id":message.data["topic_id"],"message":{"id":message.id}}));return;
+    if active_chat_id() != Some(message.chat_id)
+        || !crate::topics::matches_message(&composer_topic(message.chat_id), &message.data)
+    {
+        crate::topics::open_link(
+            serde_json::json!({"chat_id":message.chat_id,"topic_id":message.data["topic_id"],"message":{"id":message.id}}),
+        );
+        return;
     }
-    CHAT_VIEW.with(|v| {if let Some(v)=v.borrow().as_ref(){v.append_message(message);v.jump_to(message.id);}});
+    CHAT_VIEW.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.append_message(message);
+            v.jump_to(message.id);
+        }
+    });
 }
 
 pub fn active_chat_id() -> Option<i64> {
@@ -1430,40 +1479,92 @@ pub fn refresh_folder_labels() {
     });
 }
 
-pub fn discard_topic_draft(id: i64,topic:&serde_json::Value) {
-    let key=crate::topics::draft_key(&prefs::get().active_account_id,id,topic);
-    prefs::update(|p|{p.drafts.remove(&key);});
-    CHAT_VIEW.with(|v|{if let Some(v)=v.borrow().as_ref(){if *v.current_chat_id.borrow()==Some(id)&&v.topic_id()==*topic{v.discard_draft();}}});
+pub fn discard_topic_draft(id: i64, topic: &serde_json::Value) {
+    let key = crate::topics::draft_key(&prefs::get().active_account_id, id, topic);
+    prefs::update(|p| {
+        p.drafts.remove(&key);
+    });
+    CHAT_VIEW.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            if *v.current_chat_id.borrow() == Some(id) && v.topic_id() == *topic {
+                v.discard_draft();
+            }
+        }
+    });
 }
 
-pub fn navigation_version()->u64 { NAVIGATION.with(|v|v.get()) }
-fn advance_navigation()->u64 { NAVIGATION.with(|v|{v.set(v.get().wrapping_add(1));v.get()}) }
-pub fn open_context(chat:i64, topic:serde_json::Value, title:String, draft:serde_json::Value) {
-    open_context_at(chat,topic,title,draft,None);
+pub fn navigation_version() -> u64 {
+    NAVIGATION.with(|v| v.get())
 }
-pub fn open_context_at(chat:i64,topic:serde_json::Value,title:String,draft:serde_json::Value,jump:Option<i64>){
-    let navigation=advance_navigation();with_service(|s|s.resolve_context(chat,topic,title,draft,navigation,jump));
+fn advance_navigation() -> u64 {
+    NAVIGATION.with(|v| {
+        v.set(v.get().wrapping_add(1));
+        v.get()
+    })
 }
-pub fn composer_topic(chat:i64)->serde_json::Value {
-    if let Some(v)=crate::conversation_windows::focused(chat){return v.topic_id()}
-    CHAT_VIEW.with(|v|v.borrow().as_ref().filter(|v|*v.current_chat_id.borrow()==Some(chat)).map(|v|v.topic_id()).unwrap_or(serde_json::Value::Null))
+pub fn open_context(chat: i64, topic: serde_json::Value, title: String, draft: serde_json::Value) {
+    open_context_at(chat, topic, title, draft, None);
 }
-pub fn remote_topic_draft(chat:i64, topic:&serde_json::Value, draft:&serde_json::Value){
-    CHAT_VIEW.with(|v|{if let Some(v)=v.borrow().as_ref(){v.remote_topic_draft(chat,topic,draft);}});
+pub fn open_context_at(chat: i64, topic: serde_json::Value, title: String, draft: serde_json::Value, jump: Option<i64>) {
+    let navigation = advance_navigation();
+    with_service(|s| s.resolve_context(chat, topic, title, draft, navigation, jump));
 }
-pub fn topic_name(chat:i64,id:i64,name:&str){
-    CHAT_VIEW.with(|v|{if let Some(v)=v.borrow().as_ref(){v.topic_name(chat,id,name);}});
+pub fn composer_topic(chat: i64) -> serde_json::Value {
+    if let Some(v) = crate::conversation_windows::focused(chat) {
+        return v.topic_id();
+    }
+    CHAT_VIEW.with(|v| {
+        v.borrow()
+            .as_ref()
+            .filter(|v| *v.current_chat_id.borrow() == Some(chat))
+            .map(|v| v.topic_id())
+            .unwrap_or(serde_json::Value::Null)
+    })
 }
-pub fn topic_deleted(chat:i64,id:i64){
-    let topic=serde_json::json!({"@type":"messageTopicForum","forum_topic_id":id});
-    with_service(|s|s.cancel_topic_draft(chat,&topic));
-    discard_topic_draft(chat,&topic);
-    if composer_topic(chat)==topic{open_chat(chat);}
+pub fn remote_topic_draft(chat: i64, topic: &serde_json::Value, draft: &serde_json::Value) {
+    CHAT_VIEW.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.remote_topic_draft(chat, topic, draft);
+        }
+    });
+}
+pub fn topic_name(chat: i64, id: i64, name: &str) {
+    CHAT_VIEW.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.topic_name(chat, id, name);
+        }
+    });
+}
+pub fn topic_deleted(chat: i64, id: i64) {
+    let topic = serde_json::json!({"@type":"messageTopicForum","forum_topic_id":id});
+    with_service(|s| s.cancel_topic_draft(chat, &topic));
+    discard_topic_draft(chat, &topic);
+    if composer_topic(chat) == topic {
+        open_chat(chat);
+    }
 }
 
 pub(crate) fn show_media(message: &nyx_telegram_core::models::MessageSummary) {
-    MEDIA_VIEWER.with(|m| { if let Some(m) = m.borrow().as_ref() { m.show_message(message); } });
+    MEDIA_VIEWER.with(|m| {
+        if let Some(m) = m.borrow().as_ref() {
+            m.show_message(message);
+        }
+    });
 }
 
-pub fn focus_chat_search(){SEARCH.with(|s|{if let Some(s)=s.borrow().as_ref(){open_search(s);}});}
-pub fn open_settings(){OVERLAY.with(|o|WINDOW.with(|w|{if let(Some(o),Some(w))=(o.borrow().as_ref(),w.borrow().as_ref()){settings_dialog::open(o,w);}}));}
+pub fn focus_chat_search() {
+    SEARCH.with(|s| {
+        if let Some(s) = s.borrow().as_ref() {
+            open_search(s);
+        }
+    });
+}
+pub fn open_settings() {
+    OVERLAY.with(|o| {
+        WINDOW.with(|w| {
+            if let (Some(o), Some(w)) = (o.borrow().as_ref(), w.borrow().as_ref()) {
+                settings_dialog::open(o, w);
+            }
+        })
+    });
+}

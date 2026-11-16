@@ -38,25 +38,15 @@ pub fn registration() {
         b.append(&fields);
         note(
             &fields,
-            state["terms_of_service"]["text"]["text"]
-                .as_str()
-                .unwrap_or("Review Telegram's terms before creating your account."),
+            state["terms_of_service"]["text"]["text"].as_str().unwrap_or("Review Telegram's terms before creating your account."),
         );
         let first = entry(&fields, "First name", "", 64);
         let last = entry(&fields, "Last name", "", 64);
-        let terms = check(
-            &fields,
-            "I agree to Telegram's terms and meet the minimum age requirement",
-            false,
-        );
+        let terms = check(&fields, "I agree to Telegram's terms and meet the minimum age requirement", false);
         let silent = check(&fields, "Do not notify my contacts that I joined", true);
         submit(&d, &b, &fields, s, "Create account", move |s| {
-            let (first, last, terms, silent) = (
-                first.text().trim().to_string(),
-                last.text().trim().to_string(),
-                terms.is_active(),
-                silent.is_active(),
-            );
+            let (first, last, terms, silent) =
+                (first.text().trim().to_string(), last.text().trim().to_string(), terms.is_active(), silent.is_active());
             async move {
                 if !terms || first.is_empty() {
                     return Err("Enter your name and accept the terms.".into());
@@ -81,12 +71,7 @@ fn email(code: bool) {
     crate::dialog_dismissal::add(&d, &b, "Cancel");
     let fields = nyx_ui::widgets::vbox(8);
     b.append(&fields);
-    let input = entry(
-        &fields,
-        if code { "Email verification code" } else { "Email address" },
-        "",
-        255,
-    );
+    let input = entry(&fields, if code { "Email verification code" } else { "Email address" }, "", 255);
     submit(&d, &b, &fields, s, "Continue", move |s| {
         let input = input.text().trim().to_string();
         async move {
@@ -137,11 +122,7 @@ pub fn recover_login() {
         fields.append(&password);
         let hint = entry(&fields, "Hint", "", 128);
         submit(&d, &b, &fields, s, "Recover password", move |s| {
-            let (code, password, hint) = (
-                code.text().trim().to_string(),
-                password.text().to_string(),
-                hint.text().to_string(),
-            );
+            let (code, password, hint) = (code.text().trim().to_string(), password.text().to_string(), hint.text().to_string());
             async move {
                 if code.is_empty() {
                     return Err("Enter the recovery code.".into());
@@ -217,9 +198,7 @@ pub fn security() {
             }
         });
         button(&b, "Verify recovery email code", verify_email);
-        button(&b, "Resend recovery email code", || {
-            crate::actions::request(0, "resendRecoveryEmailAddressCode", json!({}))
-        });
+        button(&b, "Resend recovery email code", || crate::actions::request(0, "resendRecoveryEmailAddressCode", json!({})));
         Ok(())
     });
 }

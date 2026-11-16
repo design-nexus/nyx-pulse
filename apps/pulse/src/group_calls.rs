@@ -66,7 +66,12 @@ pub fn update(v: &Value) {
         if let Some(id) = v["group_call_id"].as_i64() {
             let p = &v["participant"];
             MEMBERS.with(|m| {
-                let key=(id,p["participant_id"].to_string());if p["order"].as_str()==Some(""){m.borrow_mut().remove(&key);}else{m.borrow_mut().insert(key,p.clone());}
+                let key = (id, p["participant_id"].to_string());
+                if p["order"].as_str() == Some("") {
+                    m.borrow_mut().remove(&key);
+                } else {
+                    m.borrow_mut().insert(key, p.clone());
+                }
             });
             if let Some(session) = SESSION.with(|s| s.borrow().as_ref().filter(|s| s.id == id).cloned()) {
                 sync_video(&session);
@@ -488,8 +493,62 @@ fn participants(id: i64) {
                         if p["is_muted_for_all_users"] == true { " · muted" } else { "" }
                     ),
                 );
-                if p["can_be_muted_for_all_users"]==true||p["can_be_unmuted_for_all_users"]==true{let(scope,participant,muted)=(s.clone(),p["participant_id"].clone(),p["is_muted_for_all_users"]!=true);button(&list,if muted{"Mute for everyone"}else{"Allow speaking"},move||{if !scope.valid(){return}let participant=participant.clone();actions::run(0,"participant-moderation",move|s|async move{s.call("toggleGroupCallParticipantIsMuted",json!({"group_call_id":id,"participant_id":participant,"is_muted":muted})).await?;Ok(())});});}
-                if p["is_current_user"]==true{let(scope,raised,participant)=(s.clone(),p["is_hand_raised"]!=true,p["participant_id"].clone());button(&list,if raised{"Raise hand"}else{"Lower hand"},move||{if !scope.valid(){return}let participant=participant.clone();actions::run(0,"call-hand",move|s|async move{s.call("toggleGroupCallParticipantIsHandRaised",json!({"group_call_id":id,"participant_id":participant,"is_hand_raised":raised})).await?;Ok(())});});}else{let volume=gtk::Scale::with_range(gtk::Orientation::Horizontal,1.,200.,1.);volume.set_value(p["volume_level"].as_f64().unwrap_or(10000.)/100.);volume.set_digits(0);note(&list,"Participant volume (%)");list.append(&volume);let(scope,participant)=(s.clone(),p["participant_id"].clone());button(&list,"Apply volume",move||{if !scope.valid(){return}let(volume,participant)=((volume.value()*100.)as i32,participant.clone());actions::run(0,"call-volume",move|s|async move{s.call("setGroupCallParticipantVolumeLevel",json!({"group_call_id":id,"participant_id":participant,"volume_level":volume})).await?;Ok(())});});}
+                if p["can_be_muted_for_all_users"] == true || p["can_be_unmuted_for_all_users"] == true {
+                    let (scope, participant, muted) =
+                        (s.clone(), p["participant_id"].clone(), p["is_muted_for_all_users"] != true);
+                    button(&list, if muted { "Mute for everyone" } else { "Allow speaking" }, move || {
+                        if !scope.valid() {
+                            return;
+                        }
+                        let participant = participant.clone();
+                        actions::run(0, "participant-moderation", move |s| async move {
+                            s.call(
+                                "toggleGroupCallParticipantIsMuted",
+                                json!({"group_call_id":id,"participant_id":participant,"is_muted":muted}),
+                            )
+                            .await?;
+                            Ok(())
+                        });
+                    });
+                }
+                if p["is_current_user"] == true {
+                    let (scope, raised, participant) = (s.clone(), p["is_hand_raised"] != true, p["participant_id"].clone());
+                    button(&list, if raised { "Raise hand" } else { "Lower hand" }, move || {
+                        if !scope.valid() {
+                            return;
+                        }
+                        let participant = participant.clone();
+                        actions::run(0, "call-hand", move |s| async move {
+                            s.call(
+                                "toggleGroupCallParticipantIsHandRaised",
+                                json!({"group_call_id":id,"participant_id":participant,"is_hand_raised":raised}),
+                            )
+                            .await?;
+                            Ok(())
+                        });
+                    });
+                } else {
+                    let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 1., 200., 1.);
+                    volume.set_value(p["volume_level"].as_f64().unwrap_or(10000.) / 100.);
+                    volume.set_digits(0);
+                    note(&list, "Participant volume (%)");
+                    list.append(&volume);
+                    let (scope, participant) = (s.clone(), p["participant_id"].clone());
+                    button(&list, "Apply volume", move || {
+                        if !scope.valid() {
+                            return;
+                        }
+                        let (volume, participant) = ((volume.value() * 100.) as i32, participant.clone());
+                        actions::run(0, "call-volume", move |s| async move {
+                            s.call(
+                                "setGroupCallParticipantVolumeLevel",
+                                json!({"group_call_id":id,"participant_id":participant,"volume_level":volume}),
+                            )
+                            .await?;
+                            Ok(())
+                        });
+                    });
+                }
                 if p["can_be_muted_for_current_user"] == true || p["can_be_unmuted_for_current_user"] == true {
                     let (scope, participant, muted) =
                         (s.clone(), p["participant_id"].clone(), p["is_muted_for_current_user"] != true);
@@ -617,8 +676,17 @@ fn screen(id: i64) {
                 return Err(e);
             }
         };
-        let connected=session.engine.lock().map_err(|_|"Call engine unavailable.".to_string()).and_then(|mut engine|engine.connect_presentation(session.key,response["text"].as_str().ok_or("No screen-sharing response.")?));
-        if let Err(e)=connected{session.service.request("endGroupCallScreenSharing",json!({"group_call_id":id}));if let Ok(mut engine)=session.engine.lock(){engine.stop_presentation(session.key);}let _=configure(&session,false);return Err(e)}
+        let connected = session.engine.lock().map_err(|_| "Call engine unavailable.".to_string()).and_then(|mut engine| {
+            engine.connect_presentation(session.key, response["text"].as_str().ok_or("No screen-sharing response.")?)
+        });
+        if let Err(e) = connected {
+            session.service.request("endGroupCallScreenSharing", json!({"group_call_id":id}));
+            if let Ok(mut engine) = session.engine.lock() {
+                engine.stop_presentation(session.key);
+            }
+            let _ = configure(&session, false);
+            return Err(e);
+        }
         let flag = Arc::new(AtomicBool::new(false));
         *session.screen.borrow_mut() = Some(flag.clone());
         let (engine, key, service) = (session.engine.clone(), session.key, session.service.clone());

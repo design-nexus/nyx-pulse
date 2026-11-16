@@ -71,10 +71,8 @@ pub fn open(chat: i64, message: Option<i64>) {
                     return Ok(());
                 }
                 if value["@type"] == "statisticalGraphData" {
-                    let chart = value["json_data"]
-                        .as_str()
-                        .and_then(|v| serde_json::from_str::<Value>(v).ok())
-                        .unwrap_or(Value::Null);
+                    let chart =
+                        value["json_data"].as_str().and_then(|v| serde_json::from_str::<Value>(v).ok()).unwrap_or(Value::Null);
                     graph(&b, &chart);
                 } else {
                     note(&b, &features::summary(&value));
@@ -95,13 +93,7 @@ fn series(chart: &Value) -> Vec<(String, Vec<f64>)> {
             if chart["types"][key] == "x" {
                 return None;
             }
-            let values = a
-                .iter()
-                .skip(1)
-                .filter_map(Value::as_f64)
-                .filter(|n| n.is_finite())
-                .take(10000)
-                .collect::<Vec<_>>();
+            let values = a.iter().skip(1).filter_map(Value::as_f64).filter(|n| n.is_finite()).take(10000).collect::<Vec<_>>();
             if values.is_empty() {
                 return None;
             }

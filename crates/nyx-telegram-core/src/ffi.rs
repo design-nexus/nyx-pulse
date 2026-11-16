@@ -367,7 +367,7 @@ impl RawClient {
                                         "@type": "messageText",
                                         "text": {
                                             "@type": "formattedText",
-                                            "text": "Pulse workspace notes: **GTK4** + TDLib native client on **Omarchy Linux**.",
+                                            "text": "Pulse workspace notes: **GTK4** + TDLib native client on **Linux**.",
                                             "entities": []
                                         }
                                     }

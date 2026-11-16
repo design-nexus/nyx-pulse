@@ -28,12 +28,24 @@ impl Default for TdlibParameters {
             api_id: 611335,
             api_hash: "d524b414d21f4d37f08684c1df41ac9c".into(),
             system_language_code: "en".into(),
-            device_model: "Nyx Desktop (Omarchy Linux)".into(),
+            device_model: device_model(&std::fs::read_to_string("/etc/os-release").unwrap_or_default()),
             application_version: "0.1.0".into(),
             use_message_database: true,
             use_secret_chats: true,
             database_encryption_key: None,
         }
+    }
+}
+
+/// How this computer shows in Telegram's list of sessions: "Nyx Desktop (NyxOS 0.1)", by
+/// the system's own name (os-release's `PRETTY_NAME`, else `NAME`).
+pub fn device_model(os_release: &str) -> String {
+    let field = |key: &str| {
+        os_release.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('=').map(|v| v.trim().trim_matches('"').to_string()))
+    };
+    match field("PRETTY_NAME").filter(|n| !n.is_empty()).or_else(|| field("NAME").filter(|n| !n.is_empty())) {
+        Some(os) => format!("Nyx Desktop ({os})"),
+        None => "Nyx Desktop (Linux)".into(),
     }
 }
 
@@ -125,5 +137,17 @@ impl AuthManager {
     pub async fn log_out(&self) -> Result<(), ClientError> {
         self.client.execute("logOut", json!({})).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::device_model;
+
+    #[test]
+    fn device_is_named_after_the_system() {
+        assert_eq!(device_model("NAME=NixOS\nPRETTY_NAME=\"NyxOS 0.1 (Umbra)\"\n"), "Nyx Desktop (NyxOS 0.1 (Umbra))");
+        assert_eq!(device_model("NAME=\"Arch Linux\"\n"), "Nyx Desktop (Arch Linux)");
+        assert_eq!(device_model(""), "Nyx Desktop (Linux)");
     }
 }

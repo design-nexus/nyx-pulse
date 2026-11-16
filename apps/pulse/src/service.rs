@@ -246,22 +246,37 @@ impl TelegramService {
             }
         });
     }
-    pub fn resolve_context(&self, chat:i64, topic:Value, title:String, draft:Value, navigation:u64, jump:Option<i64>) {
-        let sync=self.sync.clone();let tx=self.tx.clone();
+    pub fn resolve_context(&self, chat: i64, topic: Value, title: String, draft: Value, navigation: u64, jump: Option<i64>) {
+        let sync = self.sync.clone();
+        let tx = self.tx.clone();
         self.runtime.spawn(async move {
-            let event=match sync.get_chat(chat).await {Ok(chat)=>ServiceEvent::ContextReady{chat,topic,title,draft,navigation,jump},Err(e)=>ServiceEvent::Error(e.to_string())};
-            let _=tx.send(event).await;
+            let event = match sync.get_chat(chat).await {
+                Ok(chat) => ServiceEvent::ContextReady { chat, topic, title, draft, navigation, jump },
+                Err(e) => ServiceEvent::Error(e.to_string()),
+            };
+            let _ = tx.send(event).await;
         });
     }
-    pub fn history_request(&self,chat:i64,topic:Value,from:i64)->async_channel::Receiver<Result<Vec<MessageSummary>,String>> {
-        let (tx,rx)=async_channel::bounded(1);let sync=self.sync.clone();
-        self.runtime.spawn(async move {let result=sync.get_topic_history(chat,topic,from,50).await.map_err(|e|e.to_string());let _=tx.send(result).await;});rx
+    pub fn history_request(
+        &self,
+        chat: i64,
+        topic: Value,
+        from: i64,
+    ) -> async_channel::Receiver<Result<Vec<MessageSummary>, String>> {
+        let (tx, rx) = async_channel::bounded(1);
+        let sync = self.sync.clone();
+        self.runtime.spawn(async move {
+            let result = sync.get_topic_history(chat, topic, from, 50).await.map_err(|e| e.to_string());
+            let _ = tx.send(result).await;
+        });
+        rx
     }
     pub fn load_topic_history(&self, chat: i64, topic: Value, revision: u64, from: i64) {
-        let sync = self.sync.clone(); let tx = self.tx.clone();
+        let sync = self.sync.clone();
+        let tx = self.tx.clone();
         self.runtime.spawn(async move {
             let result = sync.get_topic_history(chat, topic.clone(), from, 50).await.map_err(|e| e.to_string());
-            let _ = tx.send(ServiceEvent::TopicHistoryLoaded { chat_id:chat, topic, revision, from, result }).await;
+            let _ = tx.send(ServiceEvent::TopicHistoryLoaded { chat_id: chat, topic, revision, from, result }).await;
         });
     }
     pub fn send_text_message(&self, id: ChatId, text: String, reply: Option<MessageId>) {

@@ -53,7 +53,8 @@ pub fn open(overlay: &gtk::Overlay, window: &gtk::ApplicationWindow) {
         body.set_margin_end(20);
 
         let tools = gtk::Button::with_label("More account and app tools…");
-        tools.connect_clicked(|_| crate::features::hub()); body.append(&tools);
+        tools.connect_clicked(|_| crate::features::hub());
+        body.append(&tools);
         build_account_group(&body);
         build_privacy_group(&body);
         build_proxy_group(&body);
@@ -168,10 +169,13 @@ fn build_account_group(body: &gtk::Box) {
     body.append(&wrap);
 }
 
-fn privacy_row(card:&gtk::Box,title:&str,setting:&str) {
-    let setting=setting.to_string();let title=title.to_string();let label=title.clone();
-    let button=gtk::Button::with_label(&format!("{label} and exceptions…"));
-    button.connect_clicked(move |_|crate::account_tools::privacy_edit(&title,&setting));card.append(&button);
+fn privacy_row(card: &gtk::Box, title: &str, setting: &str) {
+    let setting = setting.to_string();
+    let title = title.to_string();
+    let label = title.clone();
+    let button = gtk::Button::with_label(&format!("{label} and exceptions…"));
+    button.connect_clicked(move |_| crate::account_tools::privacy_edit(&title, &setting));
+    card.append(&button);
 }
 fn build_privacy_group(body: &gtk::Box) {
     let (wrap, card) = group_box("Privacy and security");
@@ -362,4 +366,3 @@ fn build_calls_group(body: &gtk::Box) {
     card.append(&button);
     body.append(&wrap);
 }
-

@@ -73,11 +73,15 @@ impl SyncEngine {
 
         let sender = v["message_sender_id"].clone();
         if let Some(user) = sender["user_id"].as_i64() {
-            if let Ok(user)=self.client.execute("getUser",json!({"user_id":user})).await {
-                v["pulse_sender_name"]=json!(format!("{} {}",user["first_name"].as_str().unwrap_or(""),user["last_name"].as_str().unwrap_or("")).trim());
+            if let Ok(user) = self.client.execute("getUser", json!({"user_id":user})).await {
+                v["pulse_sender_name"] = json!(
+                    format!("{} {}", user["first_name"].as_str().unwrap_or(""), user["last_name"].as_str().unwrap_or("")).trim()
+                );
             }
-        } else if let Some(chat)=sender["chat_id"].as_i64() {
-            if let Ok(chat)=self.client.execute("getChat",json!({"chat_id":chat})).await {v["pulse_sender_name"]=chat["title"].clone();}
+        } else if let Some(chat) = sender["chat_id"].as_i64() {
+            if let Ok(chat) = self.client.execute("getChat", json!({"chat_id":chat})).await {
+                v["pulse_sender_name"] = chat["title"].clone();
+            }
         }
         if let Some(secret) = v["type"]["secret_chat_id"].as_i64() {
             if let Ok(data) = self.client.execute("getSecretChat", json!({"secret_chat_id":secret})).await {
@@ -319,7 +323,13 @@ impl SyncEngine {
     ) -> Result<Vec<MessageSummary>, ClientError> {
         self.get_topic_history(chat_id, Value::Null, from_message_id, limit).await
     }
-    pub async fn get_topic_history(&self, chat_id: ChatId, topic: Value, from_message_id: MessageId, limit: i32) -> Result<Vec<MessageSummary>, ClientError> {
+    pub async fn get_topic_history(
+        &self,
+        chat_id: ChatId,
+        topic: Value,
+        from_message_id: MessageId,
+        limit: i32,
+    ) -> Result<Vec<MessageSummary>, ClientError> {
         let method = match topic["@type"].as_str() {
             Some("messageTopicForum") => "getForumTopicHistory",
             Some("messageTopicThread") => "getMessageThreadHistory",
@@ -370,13 +380,21 @@ impl SyncEngine {
         self.client.execute("sendChatAction", json!({"chat_id":chat_id,"action":{"@type":"chatActionTyping"}})).await?;
         Ok(())
     }
-    pub async fn view_messages(&self, chat_id: ChatId, ids: &[MessageId]) -> Result<(), ClientError> { self.view_topic_messages(chat_id,ids,&Value::Null).await }
+    pub async fn view_messages(&self, chat_id: ChatId, ids: &[MessageId]) -> Result<(), ClientError> {
+        self.view_topic_messages(chat_id, ids, &Value::Null).await
+    }
     pub async fn view_topic_messages(&self, chat_id: ChatId, ids: &[MessageId], topic: &Value) -> Result<(), ClientError> {
         if ids.is_empty() {
             return Ok(());
         }
-        let source=match topic["@type"].as_str(){Some("messageTopicForum")=>"messageSourceForumTopicHistory",Some("messageTopicThread")=>"messageSourceMessageThreadHistory",_=>"messageSourceChatHistory"};
-        self.client.execute("viewMessages", json!({"chat_id":chat_id,"message_ids":ids,"source":{"@type":source},"force_read":true})).await?;
+        let source = match topic["@type"].as_str() {
+            Some("messageTopicForum") => "messageSourceForumTopicHistory",
+            Some("messageTopicThread") => "messageSourceMessageThreadHistory",
+            _ => "messageSourceChatHistory",
+        };
+        self.client
+            .execute("viewMessages", json!({"chat_id":chat_id,"message_ids":ids,"source":{"@type":source},"force_read":true}))
+            .await?;
         Ok(())
     }
 }

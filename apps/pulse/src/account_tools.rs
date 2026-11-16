@@ -14,14 +14,7 @@ pub fn open() {
         if !alive(&s, &d) {
             return Ok(());
         }
-        note(
-            &b,
-            &format!(
-                "{} {}",
-                me["first_name"].as_str().unwrap_or(""),
-                me["last_name"].as_str().unwrap_or("")
-            ),
-        );
+        note(&b, &format!("{} {}", me["first_name"].as_str().unwrap_or(""), me["last_name"].as_str().unwrap_or("")));
         button(&b, "Edit profile", profile);
         button(&b, "Contacts", contacts);
         button(&b, "Sessions and connected websites", sessions);
@@ -52,12 +45,7 @@ pub fn profile() {
         let first = entry(&fields, "First name", me["first_name"].as_str().unwrap_or(""), 64);
         let last = entry(&fields, "Last name", me["last_name"].as_str().unwrap_or(""), 64);
         let bio = entry(&fields, "Bio", info["bio"]["text"].as_str().unwrap_or(""), 512);
-        let username = entry(
-            &fields,
-            "Username",
-            me["usernames"]["editable_username"].as_str().unwrap_or(""),
-            32,
-        );
+        let username = entry(&fields, "Username", me["usernames"]["editable_username"].as_str().unwrap_or(""), 32);
         let s_ = s.clone();
         button(&fields, "Choose profile photo…", move || photo(s_.clone()));
         submit(&d, &b, &fields, s, "Save profile", move |s| {
@@ -74,9 +62,7 @@ pub fn profile() {
                 }
                 let fresh = s.call("getMe", json!({})).await?;
                 let current = s.call("getUserFullInfo", json!({"user_id":fresh["id"]})).await?;
-                if ["first_name", "last_name", "usernames"]
-                    .iter()
-                    .any(|key| fresh[*key] != original_me[*key])
+                if ["first_name", "last_name", "usernames"].iter().any(|key| fresh[*key] != original_me[*key])
                     || current["bio"] != original_info["bio"]
                 {
                     return Err("Your profile changed on another device. Reopen the editor.".into());
@@ -149,13 +135,8 @@ pub fn contacts() {
             if !s_.valid() {
                 return;
             }
-            let (s, list, weak, button, query) = (
-                s_.clone(),
-                list.clone(),
-                weak.clone(),
-                button.clone(),
-                query.text().to_string(),
-            );
+            let (s, list, weak, button, query) =
+                (s_.clone(), list.clone(), weak.clone(), button.clone(), query.text().to_string());
             button.set_sensitive(false);
             glib::spawn_future_local(async move {
                 let result = s
@@ -271,11 +252,7 @@ fn add_contact() {
     let last = entry(&fields, "Last name", "", 64);
     let phone = entry(&fields, "Phone including country code", "", 32);
     submit(&d, &b, &fields, s, "Add contact", move |s| {
-        let (first, last, phone) = (
-            first.text().trim().to_string(),
-            last.text().to_string(),
-            phone.text().trim().to_string(),
-        );
+        let (first, last, phone) = (first.text().trim().to_string(), last.text().to_string(), phone.text().trim().to_string());
         async move {
             if first.is_empty() || phone.chars().filter(char::is_ascii_digit).count() < 5 {
                 return Err("Enter a first name and phone number with country code.".into());
@@ -308,11 +285,7 @@ pub fn sessions() {
                     "{} · {}{}\n{} · {}",
                     session["application_name"].as_str().unwrap_or("Session"),
                     session["device_model"].as_str().unwrap_or(""),
-                    if session["is_current"] == true {
-                        " · this device"
-                    } else {
-                        ""
-                    },
+                    if session["is_current"] == true { " · this device" } else { "" },
                     session["location"].as_str().unwrap_or(""),
                     session["ip_address"].as_str().unwrap_or("")
                 ),
@@ -430,7 +403,9 @@ pub fn privacy() {
         Ok(())
     });
 }
-pub fn privacy_edit(title: &str, setting: &str) {crate::privacy_tools::edit(title,setting);}
+pub fn privacy_edit(title: &str, setting: &str) {
+    crate::privacy_tools::edit(title, setting);
+}
 pub fn notifications() {
     features::load("Notification settings", |s, _d, b| async move {
         for (label, typ) in [
@@ -468,16 +443,9 @@ fn notification_scope(typ: &str) {
         let fields = nyx_ui::widgets::vbox(8);
         b.append(&fields);
         let preview = check(&fields, "Show message previews", original["show_preview"] == true);
-        let mentions = check(
-            &fields,
-            "Disable mention notifications",
-            original["disable_mention_notifications"] == true,
-        );
-        let pins = check(
-            &fields,
-            "Disable pinned-message notifications",
-            original["disable_pinned_message_notifications"] == true,
-        );
+        let mentions = check(&fields, "Disable mention notifications", original["disable_mention_notifications"] == true);
+        let pins =
+            check(&fields, "Disable pinned-message notifications", original["disable_pinned_message_notifications"] == true);
         let mute = check(&fields, "Mute this category", original["mute_for"].as_i64().unwrap_or(0) > 0);
         let exceptions = s
             .call(

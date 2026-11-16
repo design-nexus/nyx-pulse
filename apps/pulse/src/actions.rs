@@ -108,7 +108,10 @@ pub fn menu_item(p: &gtk::Popover, body: &gtk::Box, title: &str, action: impl Fn
     let button = gtk::Button::with_label(title);
     button.add_css_class("flat");
     if let Some(label) = button.child().and_downcast::<gtk::Label>() {
-        label.set_xalign(0.0);label.set_wrap(true);label.set_wrap_mode(gtk::pango::WrapMode::WordChar);label.set_max_width_chars(34);
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        label.set_max_width_chars(34);
     }
     button.set_halign(gtk::Align::Fill);
     let weak = p.downgrade();
@@ -132,16 +135,20 @@ pub fn show_chat_menu(parent: &gtk::Widget, id: i64, position: Option<(f64, f64)
     }
     menu_item(&p, &body, "Bot commands / keyboard…", move || crate::bots::menu(id));
     menu_item(&p, &body, "Inline bot search…", move || crate::bots::inline(id));
-    menu_item(&p, &body, "Stories…", move || crate::stories::chat_stories(id,false));
+    menu_item(&p, &body, "Stories…", move || crate::stories::chat_stories(id, false));
     menu_item(&p, &body, "Open in new window", move || crate::conversation_windows::open(id));
     menu_item(&p, &body, "Notification settings…", move || crate::notifications::chat(id));
     menu_item(&p, &body, "Export conversation…", move || crate::export_bundle::open(id));
-    if matches!(chat.chat_type,ChatType::BasicGroup|ChatType::Supergroup|ChatType::Channel) {
-        menu_item(&p,&body,"Group call…",move||crate::group_calls::open(id));
-        menu_item(&p,&body,"Statistics…",move||crate::statistics::open(id,None));
+    if matches!(chat.chat_type, ChatType::BasicGroup | ChatType::Supergroup | ChatType::Channel) {
+        menu_item(&p, &body, "Group call…", move || crate::group_calls::open(id));
+        menu_item(&p, &body, "Statistics…", move || crate::statistics::open(id, None));
     }
-    if chat.chat_type==ChatType::Channel {menu_item(&p,&body,"Boosts…",move||crate::commerce::boost(id));}
-    if chat.data["pulse_is_forum"]==true {menu_item(&p,&body,"Topics…",move ||crate::topics::browse(id));}
+    if chat.chat_type == ChatType::Channel {
+        menu_item(&p, &body, "Boosts…", move || crate::commerce::boost(id));
+    }
+    if chat.data["pulse_is_forum"] == true {
+        menu_item(&p, &body, "Topics…", move || crate::topics::browse(id));
+    }
     let unread = chat.unread_count > 0 || chat.is_marked_unread();
     menu_item(&p, &body, if unread { "Mark as read" } else { "Mark as unread" }, move || {
         run(id, "mark-unread", move |scope| async move {
@@ -161,22 +168,32 @@ pub fn show_chat_menu(parent: &gtk::Widget, id: i64, position: Option<(f64, f64)
     if matches!(chat.chat_type, ChatType::BasicGroup | ChatType::Supergroup | ChatType::Channel) {
         menu_item(&p, &body, "Group / channel management…", move || crate::groups::manage(id));
     }
-    if matches!(chat.chat_type,ChatType::Supergroup|ChatType::Channel){menu_item(&p,&body,"Send as…",move ||crate::identities::choose(id));}
+    if matches!(chat.chat_type, ChatType::Supergroup | ChatType::Channel) {
+        menu_item(&p, &body, "Send as…", move || crate::identities::choose(id));
+    }
     menu_item(&p, &body, "Folders…", move || crate::folders::membership(id));
     menu_item(&p, &body, "Scheduled messages", move || crate::message_tools::scheduled(id));
     menu_item(&p, &body, "Auto-delete messages…", move || crate::message_tools::auto_delete(id));
     let draft_topic = window::composer_topic(id);
-    let draft_key = crate::topics::draft_key(&crate::prefs::get().active_account_id,id,&draft_topic);
+    let draft_key = crate::topics::draft_key(&crate::prefs::get().active_account_id, id, &draft_topic);
     if (draft_topic.is_null() && !chat.data["draft_message"].is_null()) || crate::prefs::get().drafts.contains_key(&draft_key) {
         menu_item(&p, &body, "Discard draft…", move || {
-            let topic=draft_topic.clone();
-            operation("Discard draft?","This removes the unsent draft from this conversation or topic. Sent messages are kept.",vec![],"Discard draft",move |scope,_|{
-                let topic=topic.clone();async move {
-                    window::with_service(|s|s.cancel_topic_draft(id,&topic));
-                    scope.call("setChatDraftMessage",json!({"chat_id":id,"topic_id":topic,"draft_message":null})).await?;
-                    window::discard_topic_draft(id,&topic);Ok(())
-                }
-            });
+            let topic = draft_topic.clone();
+            operation(
+                "Discard draft?",
+                "This removes the unsent draft from this conversation or topic. Sent messages are kept.",
+                vec![],
+                "Discard draft",
+                move |scope, _| {
+                    let topic = topic.clone();
+                    async move {
+                        window::with_service(|s| s.cancel_topic_draft(id, &topic));
+                        scope.call("setChatDraftMessage", json!({"chat_id":id,"topic_id":topic,"draft_message":null})).await?;
+                        window::discard_topic_draft(id, &topic);
+                        Ok(())
+                    }
+                },
+            );
         });
     }
     let list = window::current_chat_list();
@@ -541,23 +558,62 @@ pub fn show_message_menu(view: &Rc<crate::chat_view::ChatView>, parent: &gtk::Wi
                 return;
             }
         };
-        if props["can_get_message_thread"]==true {
-            let chat=message.chat_id;menu_item(&p,&body,"Replies / comments…",move ||crate::topics::thread(chat,id));
+        if props["can_get_message_thread"] == true {
+            let chat = message.chat_id;
+            menu_item(&p, &body, "Replies / comments…", move || crate::topics::thread(chat, id));
         }
         let chat = message.chat_id;
-        if message.data["content"]["@type"]=="messagePaymentSuccessful"{menu_item(&p,&body,"Payment receipt…",move||crate::commerce::receipt(chat,id));}
-        menu_item(&p,&body,"Translate…",move||crate::message_extras::translate(chat,id));
-        if message.data["content"]["@type"]=="messageVoiceNote" || message.data["content"]["@type"]=="messageVideoNote" {
-            menu_item(&p,&body,"Transcribe speech",move||request(chat,"recognizeSpeech",json!({"chat_id":chat,"message_id":id})));
+        if message.data["content"]["@type"] == "messagePaymentSuccessful" {
+            menu_item(&p, &body, "Payment receipt…", move || crate::commerce::receipt(chat, id));
         }
-        if window::chat(chat).is_some_and(|c|c.chat_type==ChatType::Channel){menu_item(&p,&body,"Paid reaction…",move||crate::commerce::paid_reaction(chat,id));}
-        if props["can_get_statistics"]==true {menu_item(&p,&body,"Message statistics…",move||crate::statistics::open(chat,Some(id)));}
-        if props["can_be_approved"]==true || props["can_be_declined"]==true {menu_item(&p,&body,"Review suggested post…",move||crate::message_extras::suggested(chat,id));}
-        if props["can_be_deleted_for_all_users"]==true&&!message.is_outgoing&&window::chat(chat).is_some_and(|c|matches!(c.chat_type,ChatType::Supergroup|ChatType::Channel)){
-            let sender=message.data["sender_id"].clone();menu_item(&p,&body,"Delete all messages from this sender…",move||{let sender=sender.clone();operation("Delete all sender messages?","Every message sent by this person or channel in this conversation will be deleted for everyone. This cannot be undone.",vec![],"Delete all",move|s,_|{let sender=sender.clone();async move{crate::groups::context(&s,chat).await?.require("can_delete_messages")?;crate::groups::commit(&s,"deleteChatMessagesBySender",json!({"chat_id":chat,"sender_id":sender})).await?;Ok(())}});});}
-        if props["can_edit_media"]==true{menu_item(&p,&body,"Replace media…",move||crate::message_editing::replace(chat,id));}
-        if props["can_add_offer"]==true{menu_item(&p,&body,"Add offer…",move||crate::message_editing::offer(chat,id));}
-        if message.is_outgoing&&message.data["content"]["@type"]=="messageLiveLocation"{menu_item(&p,&body,"Proximity alert…",move||crate::message_editing::proximity(chat,id));}
+        menu_item(&p, &body, "Translate…", move || crate::message_extras::translate(chat, id));
+        if message.data["content"]["@type"] == "messageVoiceNote" || message.data["content"]["@type"] == "messageVideoNote" {
+            menu_item(&p, &body, "Transcribe speech", move || {
+                request(chat, "recognizeSpeech", json!({"chat_id":chat,"message_id":id}))
+            });
+        }
+        if window::chat(chat).is_some_and(|c| c.chat_type == ChatType::Channel) {
+            menu_item(&p, &body, "Paid reaction…", move || crate::commerce::paid_reaction(chat, id));
+        }
+        if props["can_get_statistics"] == true {
+            menu_item(&p, &body, "Message statistics…", move || crate::statistics::open(chat, Some(id)));
+        }
+        if props["can_be_approved"] == true || props["can_be_declined"] == true {
+            menu_item(&p, &body, "Review suggested post…", move || crate::message_extras::suggested(chat, id));
+        }
+        if props["can_be_deleted_for_all_users"] == true
+            && !message.is_outgoing
+            && window::chat(chat).is_some_and(|c| matches!(c.chat_type, ChatType::Supergroup | ChatType::Channel))
+        {
+            let sender = message.data["sender_id"].clone();
+            menu_item(&p, &body, "Delete all messages from this sender…", move || {
+                let sender = sender.clone();
+                operation(
+                    "Delete all sender messages?",
+                    "Every message sent by this person or channel in this conversation will be deleted for everyone. This cannot be undone.",
+                    vec![],
+                    "Delete all",
+                    move |s, _| {
+                        let sender = sender.clone();
+                        async move {
+                            crate::groups::context(&s, chat).await?.require("can_delete_messages")?;
+                            crate::groups::commit(&s, "deleteChatMessagesBySender", json!({"chat_id":chat,"sender_id":sender}))
+                                .await?;
+                            Ok(())
+                        }
+                    },
+                );
+            });
+        }
+        if props["can_edit_media"] == true {
+            menu_item(&p, &body, "Replace media…", move || crate::message_editing::replace(chat, id));
+        }
+        if props["can_add_offer"] == true {
+            menu_item(&p, &body, "Add offer…", move || crate::message_editing::offer(chat, id));
+        }
+        if message.is_outgoing && message.data["content"]["@type"] == "messageLiveLocation" {
+            menu_item(&p, &body, "Proximity alert…", move || crate::message_editing::proximity(chat, id));
+        }
         let permissions: MessagePermissions = serde_json::from_value(props.clone()).unwrap_or_default();
         let m = message.clone();
         let v = view.clone();
@@ -597,7 +653,10 @@ pub fn show_message_menu(view: &Rc<crate::chat_view::ChatView>, parent: &gtk::Wi
             let m = message.clone();
             menu_item(&p, &body, "Edit…", move || edit_message(m.clone()));
         }
-        if message.data["content"]["@type"] == "messagePoll" && message.data["content"]["poll"]["is_closed"] != true && props["can_be_edited"] == true {
+        if message.data["content"]["@type"] == "messagePoll"
+            && message.data["content"]["poll"]["is_closed"] != true
+            && props["can_be_edited"] == true
+        {
             let chat = message.chat_id;
             menu_item(&p, &body, "Stop poll…", move || crate::rich_messages::stop(chat, id));
         }
@@ -1000,49 +1059,112 @@ fn reaction_people(message: MessageSummary, reaction: Option<Value>, offset: Str
     });
 }
 
-type ForwardAccepted=Rc<RefCell<std::collections::HashMap<(i64,String),HashSet<i64>>>>;
-type ForwardTopics=Rc<RefCell<std::collections::HashMap<i64,(Value,String)>>>;
-fn forward_key(chat:i64,topic:&Value)->(i64,String){(chat,crate::topics::suffix(topic))}
-fn recipient_row(list:&gtk::Box,selected:&Rc<RefCell<HashSet<i64>>>,id:i64,title:&str,forum:bool,topics:&ForwardTopics,accepted:&ForwardAccepted,scope:&Scope){
-    let row=w::hbox(6);row.set_widget_name(&format!("forward-recipient-{id}"));let check=gtk::CheckButton::with_label(title);check.set_hexpand(true);
-    if let Some(label)=check.child().and_downcast::<gtk::Label>(){label.set_ellipsize(gtk::pango::EllipsizeMode::End);label.set_max_width_chars(30);}
+type ForwardAccepted = Rc<RefCell<std::collections::HashMap<(i64, String), HashSet<i64>>>>;
+type ForwardTopics = Rc<RefCell<std::collections::HashMap<i64, (Value, String)>>>;
+fn forward_key(chat: i64, topic: &Value) -> (i64, String) {
+    (chat, crate::topics::suffix(topic))
+}
+fn recipient_row(
+    list: &gtk::Box,
+    selected: &Rc<RefCell<HashSet<i64>>>,
+    id: i64,
+    title: &str,
+    forum: bool,
+    topics: &ForwardTopics,
+    accepted: &ForwardAccepted,
+    scope: &Scope,
+) {
+    let row = w::hbox(6);
+    row.set_widget_name(&format!("forward-recipient-{id}"));
+    let check = gtk::CheckButton::with_label(title);
+    check.set_hexpand(true);
+    if let Some(label) = check.child().and_downcast::<gtk::Label>() {
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        label.set_max_width_chars(30);
+    }
     check.set_active(selected.borrow().contains(&id));
-    let selection=selected.clone();check.connect_toggled(move |c|{if c.is_active(){selection.borrow_mut().insert(id);}else{selection.borrow_mut().remove(&id);}});row.append(&check);
-    if forum{
-        topics.borrow_mut().entry(id).or_insert((Value::Null,"Choose topic…".into()));
-        let topic_button=gtk::Button::with_label(&topics.borrow().get(&id).map(|(_,name)|name.clone()).unwrap_or_else(||"Choose topic…".into()));
-        if let Some(label)=topic_button.child().and_downcast::<gtk::Label>(){label.set_max_width_chars(18);label.set_ellipsize(gtk::pango::EllipsizeMode::End);}
-        let (topics,accepted,scope)=(topics.clone(),accepted.clone(),scope.clone());
-        topic_button.connect_clicked(move |button|{
-            if !scope.valid(){return}
-            if accepted.borrow().iter().any(|((chat,_),ids)|*chat==id&&!ids.is_empty()){window::show_status("This destination is locked because some messages have already been accepted.");return}
-            let (topics,accepted,scope,weak,check)=(topics.clone(),accepted.clone(),scope.clone(),button.downgrade(),check.downgrade());
-            crate::topics::choose_destination(id,move |topic,title|{
-                if !scope.valid()||accepted.borrow().iter().any(|((chat,_),ids)|*chat==id&&!ids.is_empty()){return}
-                if let Some(button)=weak.upgrade(){if !button.is_sensitive(){return}button.set_label(&title);topics.borrow_mut().insert(id,(topic,title));if let Some(check)=check.upgrade(){check.set_active(true);}}
+    let selection = selected.clone();
+    check.connect_toggled(move |c| {
+        if c.is_active() {
+            selection.borrow_mut().insert(id);
+        } else {
+            selection.borrow_mut().remove(&id);
+        }
+    });
+    row.append(&check);
+    if forum {
+        topics.borrow_mut().entry(id).or_insert((Value::Null, "Choose topic…".into()));
+        let topic_button = gtk::Button::with_label(
+            &topics.borrow().get(&id).map(|(_, name)| name.clone()).unwrap_or_else(|| "Choose topic…".into()),
+        );
+        if let Some(label) = topic_button.child().and_downcast::<gtk::Label>() {
+            label.set_max_width_chars(18);
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        }
+        let (topics, accepted, scope) = (topics.clone(), accepted.clone(), scope.clone());
+        topic_button.connect_clicked(move |button| {
+            if !scope.valid() {
+                return;
+            }
+            if accepted.borrow().iter().any(|((chat, _), ids)| *chat == id && !ids.is_empty()) {
+                window::show_status("This destination is locked because some messages have already been accepted.");
+                return;
+            }
+            let (topics, accepted, scope, weak, check) =
+                (topics.clone(), accepted.clone(), scope.clone(), button.downgrade(), check.downgrade());
+            crate::topics::choose_destination(id, move |topic, title| {
+                if !scope.valid() || accepted.borrow().iter().any(|((chat, _), ids)| *chat == id && !ids.is_empty()) {
+                    return;
+                }
+                if let Some(button) = weak.upgrade() {
+                    if !button.is_sensitive() {
+                        return;
+                    }
+                    button.set_label(&title);
+                    topics.borrow_mut().insert(id, (topic, title));
+                    if let Some(check) = check.upgrade() {
+                        check.set_active(true);
+                    }
+                }
             });
-        });row.append(&topic_button);
+        });
+        row.append(&topic_button);
     }
     list.append(&row);
 }
-fn sync_forward_selection(list:&gtk::Box,selected:&Rc<RefCell<HashSet<i64>>>){
-    let mut row=list.first_child();
-    while let Some(widget)=row{
-        row=widget.next_sibling();
-        if let Some(id)=widget.widget_name().strip_prefix("forward-recipient-").and_then(|id|id.parse::<i64>().ok()){
-            if let Some(check)=widget.first_child().and_downcast::<gtk::CheckButton>(){
-                let active=selected.borrow().contains(&id);
+fn sync_forward_selection(list: &gtk::Box, selected: &Rc<RefCell<HashSet<i64>>>) {
+    let mut row = list.first_child();
+    while let Some(widget) = row {
+        row = widget.next_sibling();
+        if let Some(id) = widget.widget_name().strip_prefix("forward-recipient-").and_then(|id| id.parse::<i64>().ok()) {
+            if let Some(check) = widget.first_child().and_downcast::<gtk::CheckButton>() {
+                let active = selected.borrow().contains(&id);
                 check.set_active(active);
             }
         }
     }
 }
 #[cfg(test)]
-pub fn check_forward_selection(){
-    let list=w::vbox(0);let row=w::hbox(0);row.set_widget_name("forward-recipient-7");let check=gtk::CheckButton::new();check.set_active(true);row.append(&check);list.append(&row);
-    let selected=Rc::new(RefCell::new(HashSet::<i64>::new()));let state=selected.clone();
-    check.connect_toggled(move |c|{if c.is_active(){state.borrow_mut().insert(7);}else{state.borrow_mut().remove(&7);}});
-    sync_forward_selection(&list,&selected);assert!(!check.is_active());assert!(selected.borrow().is_empty());
+pub fn check_forward_selection() {
+    let list = w::vbox(0);
+    let row = w::hbox(0);
+    row.set_widget_name("forward-recipient-7");
+    let check = gtk::CheckButton::new();
+    check.set_active(true);
+    row.append(&check);
+    list.append(&row);
+    let selected = Rc::new(RefCell::new(HashSet::<i64>::new()));
+    let state = selected.clone();
+    check.connect_toggled(move |c| {
+        if c.is_active() {
+            state.borrow_mut().insert(7);
+        } else {
+            state.borrow_mut().remove(&7);
+        }
+    });
+    sync_forward_selection(&list, &selected);
+    assert!(!check.is_active());
+    assert!(selected.borrow().is_empty());
 }
 pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
     if messages.is_empty() {
@@ -1069,8 +1191,8 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
         let own = scope.call("createPrivateChat", json!({"user_id":me["id"],"force":false})).await?;
         let own_id = own["id"].as_i64().ok_or("Saved Messages is unavailable")?;
         let ids = messages.iter().map(|m| m.id).collect::<Vec<_>>();
-        let accepted:ForwardAccepted=Default::default();
-        let destination_topics:ForwardTopics=Default::default();
+        let accepted: ForwardAccepted = Default::default();
+        let destination_topics: ForwardTopics = Default::default();
         if saved {
             send_forward(&scope, chat, &ids, own_id, &Value::Null, false, false, can_copy, can_secret, &accepted).await?;
             window::show_status("Forward accepted for Saved Messages");
@@ -1120,9 +1242,18 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
         body.append(&search);
         let recipients = w::vbox(4);
         let selected = Rc::new(RefCell::new(HashSet::new()));
-        recipient_row(&recipients,&selected,own_id,"Saved Messages",false,&destination_topics,&accepted,&scope);
+        recipient_row(&recipients, &selected, own_id, "Saved Messages", false, &destination_topics, &accepted, &scope);
         for chat in window::list_chats(usize::MAX).into_iter().filter(|c| c.id != own_id) {
-            recipient_row(&recipients,&selected,chat.id,&chat.title,chat.data["pulse_is_forum"]==true,&destination_topics,&accepted,&scope);
+            recipient_row(
+                &recipients,
+                &selected,
+                chat.id,
+                &chat.title,
+                chat.data["pulse_is_forum"] == true,
+                &destination_topics,
+                &accepted,
+                &scope,
+            );
         }
         let scroll = gtk::ScrolledWindow::builder()
             .min_content_height(120)
@@ -1138,7 +1269,8 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
         let selected_search = selected.clone();
         let scope_search = scope.clone();
         let weak_dialog = dialog.downgrade();
-        let search_topics=destination_topics.clone();let search_accepted=accepted.clone();
+        let search_topics = destination_topics.clone();
+        let search_accepted = accepted.clone();
         search.connect_search_changed(move |entry| {
             let n = revision.get() + 1;
             revision.set(n);
@@ -1148,7 +1280,7 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
             let scope = scope_search.clone();
             let weak = weak_dialog.clone();
             let query = entry.text().to_string();
-            let (destination_topics,accepted)=(search_topics.clone(),search_accepted.clone());
+            let (destination_topics, accepted) = (search_topics.clone(), search_accepted.clone());
             glib::spawn_future_local(async move {
                 let result = scope.call("searchChats", json!({"query":query,"limit":50})).await;
                 if revision.get() != n || weak.upgrade().is_none_or(|d| !d.is_visible()) {
@@ -1167,8 +1299,12 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                         continue;
                     }
                     if let Ok(chat) = scope.call("getChat", json!({"chat_id":id})).await {
-                        let forum=if let Some(group)=chat["type"]["supergroup_id"].as_i64(){scope.call("getSupergroup",json!({"supergroup_id":group})).await.is_ok_and(|g|g["is_forum"]==true)}else{false};
-                        rows.push((id, chat["title"].as_str().unwrap_or("Chat").to_owned(),forum));
+                        let forum = if let Some(group) = chat["type"]["supergroup_id"].as_i64() {
+                            scope.call("getSupergroup", json!({"supergroup_id":group})).await.is_ok_and(|g| g["is_forum"] == true)
+                        } else {
+                            false
+                        };
+                        rows.push((id, chat["title"].as_str().unwrap_or("Chat").to_owned(), forum));
                     }
                     if revision.get() != n || weak.upgrade().is_none_or(|d| !d.is_visible()) {
                         return;
@@ -1177,18 +1313,27 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                 while let Some(child) = list.first_child() {
                     list.remove(&child)
                 }
-                recipient_row(&list,&selected,own_id,"Saved Messages",false,&destination_topics,&accepted,&scope);
+                recipient_row(&list, &selected, own_id, "Saved Messages", false, &destination_topics, &accepted, &scope);
                 for (id, title, forum) in rows {
-                    recipient_row(&list,&selected,id,&title,forum,&destination_topics,&accepted,&scope)
+                    recipient_row(&list, &selected, id, &title, forum, &destination_topics, &accepted, &scope)
                 }
             });
         });
         let error = w::label("", "error");
         error.set_wrap(true);
         error.set_max_width_chars(44);
-        body.append(&gtk::ScrolledWindow::builder().max_content_height(96).propagate_natural_height(true).hscrollbar_policy(gtk::PolicyType::Never).vscrollbar_policy(gtk::PolicyType::External).child(&error).build());
+        body.append(
+            &gtk::ScrolledWindow::builder()
+                .max_content_height(96)
+                .propagate_natural_height(true)
+                .hscrollbar_policy(gtk::PolicyType::Never)
+                .vscrollbar_policy(gtk::PolicyType::External)
+                .child(&error)
+                .build(),
+        );
         let status = w::label("", "dim");
-        status.set_wrap(true);status.set_max_width_chars(44);
+        status.set_wrap(true);
+        status.set_max_width_chars(44);
         body.append(&status);
         let send = gtk::Button::with_label("Forward to selected chats");
         body.append(&send);
@@ -1201,7 +1346,10 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                 error.set_text("Choose at least one recipient");
                 return;
             }
-            if selected.borrow().iter().any(|id|destination_topics.borrow().get(id).is_some_and(|(topic,_)|topic.is_null())){error.set_text("Choose a destination topic for each selected forum.");return}
+            if selected.borrow().iter().any(|id| destination_topics.borrow().get(id).is_some_and(|(topic, _)| topic.is_null())) {
+                error.set_text("Choose a destination topic for each selected forum.");
+                return;
+            }
             if busy.replace(true) {
                 return;
             }
@@ -1216,7 +1364,11 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
             }
             let copy = hide.is_active() || captions.is_active();
             let remove = captions.is_active();
-            let targets = selected.borrow().iter().map(|id|(*id,destination_topics.borrow().get(id).map(|(topic,_)|topic.clone()).unwrap_or(Value::Null))).collect::<Vec<_>>();
+            let targets = selected
+                .borrow()
+                .iter()
+                .map(|id| (*id, destination_topics.borrow().get(id).map(|(topic, _)| topic.clone()).unwrap_or(Value::Null)))
+                .collect::<Vec<_>>();
             let (scope, ids, selected, error, status, button, busy, accepted) = (
                 scope.clone(),
                 ids.clone(),
@@ -1228,13 +1380,20 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                 accepted.clone(),
             );
             button.set_sensitive(false);
-            let controls=vec![hide.clone().upcast::<gtk::Widget>(),captions.clone().upcast(),search.clone().upcast(),recipients.clone().upcast()];
-            for control in &controls{control.set_sensitive(false);}
-            let recipient_rows=recipients.clone();
+            let controls = vec![
+                hide.clone().upcast::<gtk::Widget>(),
+                captions.clone().upcast(),
+                search.clone().upcast(),
+                recipients.clone().upcast(),
+            ];
+            for control in &controls {
+                control.set_sensitive(false);
+            }
+            let recipient_rows = recipients.clone();
             glib::spawn_future_local(async move {
                 let mut failures = Vec::new();
                 let mut sent = 0;
-                for (target,topic) in targets {
+                for (target, topic) in targets {
                     match send_forward(&scope, chat, &ids, target, &topic, copy, remove, can_copy, can_secret, &accepted).await {
                         Ok(()) => {
                             selected.borrow_mut().remove(&target);
@@ -1253,7 +1412,7 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                     dialog.close();
                     return;
                 }
-                sync_forward_selection(&recipient_rows,&selected);
+                sync_forward_selection(&recipient_rows, &selected);
                 if failures.is_empty() {
                     window::show_status("Forwarding accepted");
                     dialog.close();
@@ -1262,7 +1421,9 @@ pub fn forward(mut messages: Vec<MessageSummary>, saved: bool) {
                     status.set_text(&format!("Accepted for {sent} chat(s). Confirmed messages are excluded from retries."));
                     error.set_text(&failures.join("\n"));
                     button.set_sensitive(!unknown);
-                    for control in &controls{control.set_sensitive(!unknown);}
+                    for control in &controls {
+                        control.set_sensitive(!unknown);
+                    }
                 }
             });
         });
@@ -1300,9 +1461,12 @@ async fn send_forward(
             return Err("Forwarding permission changed".into());
         }
     }
-    if topic["@type"]=="messageTopicForum"{scope.call("getForumTopic",json!({"chat_id":target,"forum_topic_id":topic["forum_topic_id"]})).await?;}
-    let key=forward_key(target,topic);
-    let remaining = ids.iter().copied().filter(|id|!accepted.borrow().get(&key).is_some_and(|set|set.contains(id))).collect::<Vec<_>>();
+    if topic["@type"] == "messageTopicForum" {
+        scope.call("getForumTopic", json!({"chat_id":target,"forum_topic_id":topic["forum_topic_id"]})).await?;
+    }
+    let key = forward_key(target, topic);
+    let remaining =
+        ids.iter().copied().filter(|id| !accepted.borrow().get(&key).is_some_and(|set| set.contains(id))).collect::<Vec<_>>();
     for chunk in remaining.chunks(100) {
         let data=scope.call("forwardMessages",json!({"chat_id":target,"topic_id":topic,"from_chat_id":from,"message_ids":chunk,"send_copy":copy||remove||secret,"remove_caption":remove,"options":{"@type":"messageSendOptions","paid_message_star_count":0}})).await.map_err(|e|if e.contains("timed out")||e.contains("shut down")||e.contains("stopped"){format!("Forwarding status is unknown. Check the destination before sending again: {e}")}else{e})?;
         let Some(messages) = data["messages"].as_array() else {
@@ -1434,13 +1598,14 @@ mod regression {
     use nyx_telegram_core::client::parse_message;
     #[test]
     fn stage3c_forward_destinations_are_independent() {
-        let a=json!({"@type":"messageTopicForum","forum_topic_id":1});let b=json!({"@type":"messageTopicForum","forum_topic_id":2});
-        let mut accepted=std::collections::HashMap::<(i64,String),HashSet<i64>>::new();
-        accepted.entry(forward_key(-7,&a)).or_default().insert(10);
-        assert!(accepted[&forward_key(-7,&a)].contains(&10));
-        assert!(!accepted.contains_key(&forward_key(-7,&b)));
-        assert!(!accepted.contains_key(&forward_key(-8,&a)));
-        assert_ne!(forward_key(-7,&a),forward_key(-7,&Value::Null));
+        let a = json!({"@type":"messageTopicForum","forum_topic_id":1});
+        let b = json!({"@type":"messageTopicForum","forum_topic_id":2});
+        let mut accepted = std::collections::HashMap::<(i64, String), HashSet<i64>>::new();
+        accepted.entry(forward_key(-7, &a)).or_default().insert(10);
+        assert!(accepted[&forward_key(-7, &a)].contains(&10));
+        assert!(!accepted.contains_key(&forward_key(-7, &b)));
+        assert!(!accepted.contains_key(&forward_key(-8, &a)));
+        assert_ne!(forward_key(-7, &a), forward_key(-7, &Value::Null));
     }
     #[test]
     fn partial_forward_tracks_source_ids_and_permissions_default_to_denied() {

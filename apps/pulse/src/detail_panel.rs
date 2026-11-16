@@ -277,17 +277,16 @@ impl DetailPanel {
                     return;
                 }
                 subtitle.set_text(&user_status(&data["status"]));
-                if let Some(name) = data["usernames"]["active_usernames"].as_array().and_then(|u| u.first()).and_then(Value::as_str) {
+                if let Some(name) =
+                    data["usernames"]["active_usernames"].as_array().and_then(|u| u.first()).and_then(Value::as_str)
+                {
                     about.prepend(&about_pair("Username", &format!("@{name}")));
                     about.set_visible(true);
                 }
             });
         }
         if let (Some(group), Some((_, list))) = (chat.data["type"]["supergroup_id"].as_i64(), &members) {
-            let rx = service.request(
-                "getSupergroupMembers",
-                json!({"supergroup_id":group,"filter":null,"offset":0,"limit":3}),
-            );
+            let rx = service.request("getSupergroupMembers", json!({"supergroup_id":group,"filter":null,"offset":0,"limit":3}));
             let weak = Rc::downgrade(self);
             let (generation, list) = (generation.clone(), list.clone());
             glib::spawn_future_local(async move {
@@ -357,7 +356,8 @@ impl DetailPanel {
             if let Some(total) = data["total_count"].as_i64() {
                 count.set_text(&total.to_string());
             }
-            let messages: Vec<MessageSummary> = data["messages"].as_array().into_iter().flatten().filter_map(parse_message).collect();
+            let messages: Vec<MessageSummary> =
+                data["messages"].as_array().into_iter().flatten().filter_map(parse_message).collect();
             if messages.is_empty() {
                 grid.attach(&w::label("No photos or videos yet", "dim"), 0, 0, 3, 1);
             }

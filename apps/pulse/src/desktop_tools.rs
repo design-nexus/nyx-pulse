@@ -56,15 +56,8 @@ pub fn downloads() {
                 return;
             }
             button.set_sensitive(false);
-            let (s, weak, list, offset, seen, button, query) = (
-                s.clone(),
-                weak.clone(),
-                list.clone(),
-                offset.clone(),
-                seen.clone(),
-                button.clone(),
-                query.text().to_string(),
-            );
+            let (s, weak, list, offset, seen, button, query) =
+                (s.clone(), weak.clone(), list.clone(), offset.clone(), seen.clone(), button.clone(), query.text().to_string());
             glib::spawn_future_local(async move {
                 let result = s
                     .call(
@@ -111,11 +104,7 @@ pub fn downloads() {
                                     "{title} · {:.1} / {:.1} MB{}",
                                     file["local"]["downloaded_size"].as_f64().unwrap_or(0.) / 1048576.,
                                     file["size"].as_f64().or(file["expected_size"].as_f64()).unwrap_or(0.) / 1048576.,
-                                    if item["complete_date"].as_i64().unwrap_or(0) > 0 {
-                                        " · completed"
-                                    } else {
-                                        ""
-                                    }
+                                    if item["complete_date"].as_i64().unwrap_or(0) > 0 { " · completed" } else { "" }
                                 ),
                             );
                             let scope = s.clone();
@@ -207,11 +196,7 @@ pub fn storage() {
         }
         note(
             &b,
-            &format!(
-                "Telegram cache · {:.1} MB · {} files",
-                stats["size"].as_f64().unwrap_or(0.) / 1048576.,
-                stats["count"]
-            ),
+            &format!("Telegram cache · {:.1} MB · {} files", stats["size"].as_f64().unwrap_or(0.) / 1048576., stats["count"]),
         );
         note(
             &b,
@@ -222,10 +207,7 @@ pub fn storage() {
             let title = window::chat(id)
                 .map(|c| c.title)
                 .unwrap_or_else(|| if id == 0 { "Other files".into() } else { format!("Chat {id}") });
-            note(
-                &b,
-                &format!("{title} · {:.1} MB", chat["size"].as_f64().unwrap_or(0.) / 1048576.),
-            );
+            note(&b, &format!("{title} · {:.1} MB", chat["size"].as_f64().unwrap_or(0.) / 1048576.));
             let scope = s.clone();
             button(&b, "Clear this cache…", move || {
                 if scope.valid() {
@@ -303,10 +285,7 @@ pub fn proxies() {
                             ),
                         )
                         .await?;
-                    window::show_status(&format!(
-                        "Proxy latency: {:.0} ms",
-                        result["seconds"].as_f64().unwrap_or(0.) * 1000.
-                    ));
+                    window::show_status(&format!("Proxy latency: {:.0} ms", result["seconds"].as_f64().unwrap_or(0.) * 1000.));
                     Ok(())
                 });
             });
@@ -367,11 +346,7 @@ fn proxy_edit(original: Option<Value>) {
     password.set_text(p["type"]["secret"].as_str().or(p["type"]["password"].as_str()).unwrap_or(""));
     note(&fields, "Password or MTProto secret");
     fields.append(&password);
-    let enable = check(
-        &fields,
-        "Enable this proxy",
-        original.as_ref().is_none_or(|v| v["is_enabled"] == true),
-    );
+    let enable = check(&fields, "Enable this proxy", original.as_ref().is_none_or(|v| v["is_enabled"] == true));
     submit(&d, &b, &fields, scope, "Save proxy", move |s| {
         let (server, port, user, password, kind, enable, original) = (
             server.text().trim().to_string(),
@@ -414,10 +389,7 @@ pub fn export_chat(chat: i64) {
     let Some(scope) = Scope::current() else { return };
     let (d, b) = nyx_ui::widgets::dialog("Export conversation", 440);
     crate::dialog_dismissal::add(&d, &b, "Cancel");
-    note(
-        &b,
-        "Export message text and metadata as JSON Lines. Protected messages are omitted. Media files are not copied.",
-    );
+    note(&b, "Export message text and metadata as JSON Lines. Protected messages are omitted. Media files are not copied.");
     let run = gtk::Button::with_label("Choose export file…");
     b.append(&run);
     let canceled = Rc::new(Cell::new(false));
@@ -432,10 +404,7 @@ pub fn export_chat(chat: i64) {
             return;
         }
         let Some(parent) = weak.upgrade() else { return };
-        let chooser = gtk::FileDialog::builder()
-            .title("Export conversation")
-            .initial_name("pulse-chat.jsonl")
-            .build();
+        let chooser = gtk::FileDialog::builder().title("Export conversation").initial_name("pulse-chat.jsonl").build();
         let (s, weak, button, canceled) = (scope.clone(), weak.clone(), button.clone(), canceled.clone());
         chooser.save(Some(&parent), gio::Cancellable::NONE, move |result| {
             let Ok(file) = result else { return };
