@@ -58,6 +58,6 @@ This document identifies primary technical, architectural, and operational risks
 - **Description**: Hardcoding a single public Telegram API ID/Hash in open-source repositories often leads to Telegram revoking the application key due to spam bots.
 - **Mitigation**:
   - Today Pulse ships a built-in `api_id` and `api_hash`, shared by every install
-    (NYX-SEC-014 in the NyxOS release audit), which is why NyxOS doesn't offer Pulse yet.
+    (NYX-SEC-014 in the NyxOS release audit).
   - A personal pair can be set as `api_id` and `api_hash` in Pulse's settings file
     (plain text, with the other settings). There's no setup wizard for it.
