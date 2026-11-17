@@ -21,7 +21,15 @@
       "-p",
       "nyx-pulse",
       "--bin",
-      "nyx-pulse"
+      "nyx-pulse",
+      "--",
+      "--skip",
+      "ui_regression"
+    ],
+    [
+      "bash",
+      "-c",
+      "gtk4-broadwayd :7 & broadway=$!; sleep 2; GDK_BACKEND=broadway BROADWAY_DISPLAY=:7 cargo test --locked -p nyx-pulse --bin nyx-pulse ui_regression; status=$?; kill $broadway; exit $status"
     ]
   ]
 }
