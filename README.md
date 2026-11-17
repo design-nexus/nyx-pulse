@@ -2,7 +2,7 @@
 
 Native Telegram client for the Nyx suite, using Rust, GTK4, TDLib, shared Nyx widgets, and Media Player's playback engine and controls.
 
-Install with:
+NyxOS doesn't offer Pulse yet. On Omarchy, install with:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-pulse/main/install.sh | bash
