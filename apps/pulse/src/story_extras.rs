@@ -497,7 +497,7 @@ fn area_picker_initial(body: &gtk::Box, parent: &gtk::Window, scope: &Scope, ini
                     Ok(v)
                 };
                 let position = json!({
-                "@type":"storyAreaPosition","x_percentage":parse(&x,0.,100.)?,"y_percentage":parse(&y,0.,100.)?,"width_percentage":parse(&width,0.1,100.)?,"height_percentage":parse(&height,0.1,100.)?,"rotation_angle":parse(&rotation,-360.,360.)?,"corner_radius_percentage":parse(&radius,0.,100.)?}
+                "@type":"areaPosition","x_percentage":parse(&x,0.,100.)?,"y_percentage":parse(&y,0.,100.)?,"width_percentage":parse(&width,0.1,100.)?,"height_percentage":parse(&height,0.1,100.)?,"rotation_angle":parse(&rotation,-360.,360.)?,"corner_radius_percentage":parse(&radius,0.,100.)?}
                 );
                 let typ = match kind {
                     0 => {
