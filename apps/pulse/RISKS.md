@@ -12,7 +12,7 @@ This document identifies primary technical, architectural, and operational risks
 | **R-02** | tgcalls / WebRTC calling stack complexity & upstream drift | High | Medium | Isolate calling into `crates/nyx-telegram-calls` with clean FFI abstractions (`ntgcalls` / `tgcalls`). | Fallback to audio-only VoIP bridge first; maintain pinned C++ submodule. |
 | **R-03** | Wayland / Hyprland screencasting portal permission failures | Medium | Medium | Use standard `ashpd` / XDG Desktop Portal `ScreenCast` D-Bus API; test against `xdg-desktop-portal-hyprland`. | Display clear user-facing error toast with portal troubleshooting guide. |
 | **R-04** | GTK4 UI hitching or memory explosion on large chat histories | High | Low | Enforce strict list virtualization (`gtk::ListView` + `SignalListItemFactory`); lazy fetch 50 messages at a time; zero whole-history DOM loading. | Implement hard memory caps and proactive item eviction in `gio::ListStore`. |
-| **R-05** | Telegram API key revoking or strict flood wait limits | High | Medium | Store credentials securely in Linux Secret Service; enforce exponential backoff on TDLib flood wait errors. | Guide users through obtaining personal `api_id`/`api_hash` at `my.telegram.org`. |
+| **R-05** | Telegram API key revoking or strict flood wait limits | High | Medium | Enforce exponential backoff on TDLib flood wait errors. | A personal `api_id`/`api_hash` from `my.telegram.org` can be set in Pulse's settings file. |
 | **R-06** | License mismatch (LGPL-3.0 tgcalls vs MIT Nyx workspace) | Medium | Low | Dynamic linking of tgcalls / ntgcalls shared libraries or process isolation; keeps core Nyx crates MIT. | Compliance with LGPL-3.0 by providing relinking capability. |
 | **R-07** | Audio device desynchronization or PipeWire latency issues | Medium | Low | Use standard PipeWire native audio streams or PulseAudio emulation layer over WirePlumber. | Allow explicit audio device selection in Nyx Pulse settings card. |
 | **R-08** | Secret chats protocol changes or partial TDLib support | Low | Medium | Identify and mark secret chats as experimental; ensure ordinary cloud chats are never mislabeled as E2EE. | Disable secret chats if TDLib reports unsupported environment. |
@@ -57,7 +57,7 @@ This document identifies primary technical, architectural, and operational risks
 ### R-05: Telegram API Policy & Security
 - **Description**: Hardcoding a single public Telegram API ID/Hash in open-source repositories often leads to Telegram revoking the application key due to spam bots.
 - **Mitigation**:
-  - Never commit hardcoded API credentials.
-  - Nyx Pulse provides a setup wizard where users input their `api_id` and `api_hash`.
-  - Store credentials in the Linux Secret Service keyring (`org.freedesktop.secrets`).
-  - Provide clear in-app documentation on how to generate personal API credentials in 60 seconds from `my.telegram.org`.
+  - Today Pulse ships a built-in `api_id` and `api_hash`, shared by every install
+    (NYX-SEC-014 in the NyxOS release audit), which is why NyxOS doesn't offer Pulse yet.
+  - A personal pair can be set as `api_id` and `api_hash` in Pulse's settings file
+    (plain text, with the other settings). There's no setup wizard for it.

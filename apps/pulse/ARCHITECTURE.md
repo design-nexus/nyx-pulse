@@ -220,9 +220,9 @@ To ensure smooth scrolling and low memory usage even with tens of thousands of m
 ## 7. Security and Storage Architecture
 
 1. **Telegram API Credentials**:
-   Users supply their own `api_id` and `api_hash` (or load them from the environment). Stored securely via Linux Secret Service (`org.freedesktop.secrets` through the `oo7` crate).
+   Pulse signs in with a built-in `api_id` and `api_hash`, the same for every install. A personal pair from `my.telegram.org` can be set as `api_id` and `api_hash` in Pulse's settings file, where it's kept in plain text with the other settings.
 2. **TDLib Database Encryption**:
-   Each account's TDLib SQLite database is encrypted with a unique 256-bit encryption key stored in the Linux Secret Service keyring.
+   Each account's TDLib SQLite database is encrypted with a unique 256-bit encryption key stored in the Secret Service keyring (through `secret-tool`).
 3. **Data Directories**:
    - Configuration: `~/.config/nyx-pulse/`
    - State & Accounts: `~/.local/state/nyx-pulse/`
